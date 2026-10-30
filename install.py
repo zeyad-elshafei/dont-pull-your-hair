@@ -45,9 +45,9 @@ def venv_python():
 
 
 def running_in_venv():
-    venv = os.path.realpath(VENV_DIR)
-    exe = os.path.realpath(sys.executable)
-    return exe == os.path.realpath(venv_python()) or exe.startswith(venv + os.sep)
+    venv = os.path.normcase(os.path.abspath(VENV_DIR))
+    exe = os.path.normcase(os.path.abspath(sys.executable))
+    return exe.startswith(venv + os.sep)
 
 
 def python_ok(exe):
@@ -102,14 +102,23 @@ def ensure_venv():
 
 
 def install_pip():
-    print("Upgrading pip ...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "pip"])
+    print("Upgrading pip ...", flush=True)
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "--version"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except subprocess.CalledProcessError:
+        print("pip is missing; bootstrapping it with ensurepip ...", flush=True)
+        subprocess.check_call([sys.executable, "-m", "ensurepip", "--upgrade"])
+    subprocess.check_call([sys.executable, "-m", "pip", "install",
+                           "--upgrade", "pip"])
 
 
 def install_requirements():
     if not os.path.exists(REQUIREMENTS):
         sys.exit(f"Error: {REQUIREMENTS} not found next to install.py")
-    print("Installing dependencies (this can take a few minutes) ...")
+    print("Installing dependencies (this can take a few minutes) ...",
+          flush=True)
     subprocess.check_call([sys.executable, "-m", "pip", "install",
                            "-r", REQUIREMENTS])
 
@@ -170,7 +179,7 @@ def ensure_config():
 
 
 def verify():
-    print("Verifying imports ...")
+    print("Verifying imports ...", flush=True)
     env = dict(os.environ, PYGAME_HIDE_SUPPORT_PROMPT="1")
     subprocess.check_call(
         [sys.executable, "-c",
@@ -181,7 +190,7 @@ def verify():
 
 def print_done():
     print()
-    print("Installation complete.")
+    print("Installation complete.", flush=True)
     print(f"  Start the app:        {run_cmd('gui.py')}")
     print(f"  Command-line mode:    {run_cmd('detect.py')}")
 
@@ -196,7 +205,8 @@ def main(argv):
 
     if not running_in_venv():
         ensure_venv()
-        print(f"Switching to the virtual environment: {venv_python()}")
+        print(f"Switching to the virtual environment: {venv_python()}",
+              flush=True)
         return subprocess.call([venv_python(), os.path.abspath(__file__)]
                                + argv[1:])
 
