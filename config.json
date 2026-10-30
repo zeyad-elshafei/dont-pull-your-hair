@@ -1,0 +1,20 @@
+{
+  "contact_points": [
+    4,
+    8,
+    12,
+    16,
+    20,
+    3,
+    7,
+    11,
+    15,
+    19
+  ],
+  "cooldown_seconds": 5.0,
+  "frame_interval_ms": 100.0,
+  "radius_px": 12.0,
+  "notification_title": "Stop pulling your hair!",
+  "notification_message": "Take a breath and move your hand away.",
+  "sound_path": ""
+}
