@@ -435,7 +435,7 @@ class MainWindow(QMainWindow):
 
     def _reset(self):
         self._populate(validate_config(dict(DEFAULTS)))
-        self._set_status("Defaults loaded — click Save to apply.", error=False)
+        self._set_status("Defaults loaded. Click Save to apply.", error=False)
 
     # --------------------------------------------------------------- callbacks
     def _on_frame(self, frame):
@@ -456,7 +456,7 @@ class MainWindow(QMainWindow):
 
     def _on_status(self, warn):
         self.state_label.setText(
-            "PULLING — hands away from your hair" if warn else "safe")
+            "PULLING: hands away from your hair" if warn else "safe")
         self.state_label.setStyleSheet(self._state_style(warn))
 
     def _on_failed(self, message):

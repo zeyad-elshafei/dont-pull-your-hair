@@ -2,8 +2,8 @@
 
 A local, webcam-based awareness tool for **trichotillomania** (hair-pulling
 disorder). It watches for the moment a hand comes into contact with hair, and
-gives a gentle but hard-to-miss cue — a desktop notification and an optional
-sound — so the behavior is interrupted before it becomes automatic.
+gives a gentle but hard-to-miss cue (a desktop notification and an optional
+sound) so the behavior is interrupted before it becomes automatic.
 
 Everything runs on your machine. No video is recorded, uploaded, or sent
 anywhere.
@@ -17,7 +17,7 @@ call. The first step in breaking the loop is *noticing* it. This app acts as a
 second pair of eyes that never gets bored, and keeps a private log of when it
 happened so patterns become visible over time.
 
-It is a **wellness tool, not a medical device** — see the disclaimer at the
+It is a **wellness tool, not a medical device**. See the disclaimer at the
 bottom.
 
 ---
@@ -43,7 +43,7 @@ camera frame
 hair/background mask at the frame's resolution.
 
 **2. Distance transform.** For every pixel we compute the distance to the
-nearest hair pixel (`cv2.distanceTransform`). This is the key trick — see the
+nearest hair pixel (`cv2.distanceTransform`). This is the key trick; see the
 next section.
 
 **3. Hand landmarks.** MediaPipe's Hand Landmarker returns 21 landmarks per
@@ -63,8 +63,8 @@ notification, and plays your chosen sound. Alerts are rate-limited by
 
 ### Why distance, not "is the fingertip inside the hair mask?"
 
-The obvious approach — check whether the fingertip falls inside the hair
-region — fails exactly when it matters. During a pull, **the hand occludes the
+The obvious approach, checking whether the fingertip falls inside the hair
+region, fails exactly when it matters. During a pull, **the hand occludes the
 hair**, so the segmenter sees a hand-shaped hole in the mask. A fingertip at the
 center of that hole would read as "not hair" precisely while the person is
 pulling.
@@ -93,7 +93,7 @@ joint just below each tip.
 | Pinky    | 20 | 19 |
 
 **Why the DIP joints too?** When the fingers curl against the head, the tips
-tuck underneath the hand and can end up far from the hair — even though the
+tuck underneath the hand and can end up far from the hair even though the
 knuckles are physically pressed against it. The DIP joints sit on the outside
 of the curl, so they catch that case. Without them, a curled-finger pull can be
 missed.
@@ -121,7 +121,7 @@ More points means higher recall and more false positives; it is a single knob.
   so you can see exactly what the detector sees.
 - **Desktop notification + optional sound** when an episode starts.
 - **Configurable** contact points, radius, frame rate, cooldown, notification
-  text, and sound file — editable in the GUI or in `config.json`.
+  text, and sound file, editable in the GUI or in `config.json`.
 - **Activity calendar**: a GitHub-style yearly heatmap of pulls per day.
 - **Streak timer**: "I have not pulled my hair in X days, Y hours, …",
   reset by every pull.
@@ -173,7 +173,7 @@ The app opens with three tabs:
 | **Settings** | Edit all tunables, then **Save**. **Reset to Defaults** restores the form |
 | **Activity** | Yearly heatmap, streak timer, and the feedback link |
 
-Saving settings hot-applies them — no restart needed.
+Saving settings hot-applies them; no restart needed.
 
 > Desktop notifications are suppressed by your OS's **Do Not Disturb / Focus**
 > mode. The in-app status bar (and the sound, if configured) still work.
@@ -269,7 +269,7 @@ tricho_detector/
 
 - **Python 3.10+**
 - **Webcam** (built-in or USB)
-- No GPU required — both models run on CPU
+- No GPU required; both models run on CPU
 
 | Platform | Status |
 |---|---|
@@ -289,7 +289,7 @@ installer and are not committed to this repository.
 - Camera frames are processed in memory and discarded immediately.
 - Nothing is recorded, uploaded, or sent to any server.
 - `activity.json` stores only *counts per day* and the timestamp of the last
-  pull — no images, no video, no location.
+  pull, with no images, no video, and no location data.
 - The feedback link opens an external Google Form in your browser; nothing is
   sent unless you choose to submit it.
 
