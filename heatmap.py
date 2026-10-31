@@ -6,7 +6,7 @@ import datetime
 
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QToolTip, QWidget
 
 MONTH_GAP = 12
 LABEL_WIDTH = 30
@@ -30,11 +30,15 @@ class HeatmapWidget(QWidget):
         super().__init__(parent)
         self._year = datetime.date.today().year
         self._counts = {}
+        self._cell_rects = []
+        self._hovered = None
+        self.setMouseTracking(True)
         self.setMinimumHeight(120)
 
     def set_data(self, year, counts):
         self._year = int(year)
         self._counts = counts or {}
+        self._hovered = None
         self.update()
 
     def _week_columns(self, month):
@@ -59,6 +63,7 @@ class HeatmapWidget(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        self._cell_rects = []
 
         months = list(range(1, 13))
         weeks, cell, step = self._layout_metrics()
@@ -99,5 +104,40 @@ class HeatmapWidget(QWidget):
                 painter.fillRect(rect, color_for(count))
                 painter.setPen(border)
                 painter.drawRect(rect)
+                self._cell_rects.append(
+                    (rect, datetime.date(self._year, month, day), count))
 
             x += week_cols * step + MONTH_GAP
+
+    @staticmethod
+    def _tooltip_text(day, count):
+        if count == 0:
+            amount = "No pulls"
+        else:
+            amount = f"{count} pull" + ("" if count == 1 else "s")
+        return f"{day.strftime('%d %b %Y')}\n{amount}"
+
+    def _cell_at(self, pos):
+        for rect, day, count in self._cell_rects:
+            if rect.contains(pos):
+                return day, count
+        return None
+
+    def mouseMoveEvent(self, event):
+        hit = self._cell_at(event.position())
+        if hit is None:
+            if self._hovered is not None:
+                self._hovered = None
+                QToolTip.hideText()
+        else:
+            day, count = hit
+            if day != self._hovered:
+                self._hovered = day
+                QToolTip.showText(event.globalPosition().toPoint(),
+                                  self._tooltip_text(day, count), self)
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = None
+        QToolTip.hideText()
+        super().leaveEvent(event)

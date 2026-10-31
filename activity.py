@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""Per-day hair-pulling counts, persisted to activity.json.
+"""Individual hair-pulling timestamps, persisted to activity.json.
 
 Layout:
 
     {
-      "2026": {
-        "2026-10-29": 1,
-        "2026-10-30": 3
-      }
+      "2026": [
+        "2026-10-30T14:25:00",
+        "2026-10-30T14:27:12"
+      ],
+      "2027": [
+        "2027-01-01T09:00:00"
+      ]
     }
 
-Top-level keys are years. A year key is created automatically the first time
-a pull is recorded in it, so the file grows one year at a time.
+Top-level keys are years. Each year maps to a sorted list of ISO timestamps.
+A year key is created automatically on the first pull in it.
 """
 
 import datetime
@@ -35,7 +38,7 @@ def load_activity(path=ACTIVITY_PATH):
 
 
 def save_activity(data, path=ACTIVITY_PATH):
-    """Write atomically so a crash can't leave a half-written file."""
+    """Write atomically so a crash cannot leave a half-written file."""
     tmp = f"{path}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, sort_keys=True)
@@ -44,40 +47,54 @@ def save_activity(data, path=ACTIVITY_PATH):
 
 
 def record_pull(data, when=None):
-    """Increment the count for `when` (default: now) and stamp last_pull."""
+    """Append the timestamp of a pull to its year's list. Mutates and returns."""
     when = when or datetime.datetime.now()
-    if isinstance(when, datetime.datetime):
-        day = when.date()
-        stamp = when.replace(microsecond=0).isoformat()
-    else:
-        day = when
-        stamp = datetime.datetime.combine(day, datetime.time.min).isoformat()
-
-    data["last_pull"] = stamp
-    year = str(day.year)
-    key = day.isoformat()
-    days = data.setdefault(year, {})
-    days[key] = int(days.get(key, 0)) + 1
+    if not isinstance(when, datetime.datetime):
+        when = datetime.datetime.combine(when, datetime.time.min)
+    stamp = when.replace(microsecond=0).isoformat()
+    data.setdefault(str(when.year), []).append(stamp)
     return data
 
 
-def last_pull_time(data):
-    """Return the parsed last_pull timestamp, or None if absent/invalid."""
-    raw = data.get("last_pull")
-    if not isinstance(raw, str):
-        return None
-    try:
-        return datetime.datetime.fromisoformat(raw)
-    except ValueError:
-        return None
-
-
-def counts_for_year(data, year):
-    """Return the {iso_date: count} mapping for a year (may be empty)."""
-    counts = data.get(str(year), {})
-    return counts if isinstance(counts, dict) else {}
+def pulls_for_year(data, year):
+    """Return the sorted datetimes recorded for a year (empty if none)."""
+    raw = data.get(str(year), [])
+    if not isinstance(raw, list):
+        return []
+    pulls = []
+    for stamp in raw:
+        try:
+            pulls.append(datetime.datetime.fromisoformat(stamp))
+        except (TypeError, ValueError):
+            continue
+    pulls.sort()
+    return pulls
 
 
 def years_in(data):
     """Return every year key that is a plain integer, sorted ascending."""
     return sorted(int(y) for y in data if str(y).isdigit())
+
+
+def all_pulls(data):
+    """Return every recorded pull as a sorted list of datetimes."""
+    pulls = []
+    for year in years_in(data):
+        pulls.extend(pulls_for_year(data, year))
+    pulls.sort()
+    return pulls
+
+
+def last_pull_time(data):
+    """Return the most recent pull datetime, or None if there is none."""
+    pulls = all_pulls(data)
+    return pulls[-1] if pulls else None
+
+
+def counts_per_day(data, year):
+    """Return {iso_date: count} for a year, used by the heatmap."""
+    counts = {}
+    for when in pulls_for_year(data, year):
+        key = when.date().isoformat()
+        counts[key] = counts.get(key, 0) + 1
+    return counts

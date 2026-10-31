@@ -18,11 +18,12 @@ import threading
 import time
 
 import cv2
-from PySide6.QtCore import QThread, QTimer, Qt, Signal
+from PySide6.QtCore import QDate, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDateEdit,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
@@ -38,7 +39,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from activity import counts_for_year, last_pull_time, load_activity, years_in
+from activity import (all_pulls, counts_per_day, last_pull_time,
+                      load_activity, years_in)
 from detector import (
     CONFIG_PATH,
     DEFAULTS,
@@ -49,6 +51,7 @@ from detector import (
     save_config,
     validate_config,
 )
+from graph import VIEWS, PullGraph, build_graph_data
 from heatmap import HeatmapWidget
 from sound import SoundPlayer
 
@@ -144,6 +147,7 @@ class MainWindow(QMainWindow):
         self._preview_player = None
         self._last_pull = None
         self._has_pulls = False
+        self._pulls = []
 
         tabs = QTabWidget()
         tabs.addTab(self._build_camera_tab(), "Camera")
@@ -305,8 +309,28 @@ class MainWindow(QMainWindow):
 
         self.streak_label = QLabel("No pulls recorded yet.")
         self.streak_label.setStyleSheet(
-            "font-size:15px; font-weight:bold; padding-top:4px;")
+            "font-size:17px; font-weight:bold; padding-top:4px;")
         layout.addWidget(self.streak_label)
+
+        graph_controls = QHBoxLayout()
+        graph_controls.addWidget(QLabel("Graph:"))
+        self.graph_view = QComboBox()
+        self.graph_view.addItems(list(VIEWS.keys()))
+        self.graph_view.setCurrentText("Year · 1 month")
+        self.graph_view.currentTextChanged.connect(self._refresh_graph)
+        graph_controls.addWidget(self.graph_view)
+        graph_controls.addWidget(QLabel("Date:"))
+        self.graph_date = QDateEdit()
+        self.graph_date.setCalendarPopup(True)
+        self.graph_date.setDisplayFormat("yyyy-MM-dd")
+        self.graph_date.setDate(QDate.currentDate())
+        self.graph_date.dateChanged.connect(self._refresh_graph)
+        graph_controls.addWidget(self.graph_date)
+        graph_controls.addStretch(1)
+        layout.addLayout(graph_controls)
+
+        self.graph = PullGraph()
+        layout.addWidget(self.graph)
 
         layout.addStretch(1)
         return page
@@ -381,20 +405,31 @@ class MainWindow(QMainWindow):
             current if current in labels else str(today))
         self.year_combo.blockSignals(False)
 
+        self._pulls = all_pulls(data)
         self._last_pull = last_pull_time(data)
-        self._has_pulls = any(
-            counts_for_year(data, y) for y in years_in(data))
+        self._has_pulls = bool(self._pulls)
         self._update_streak()
 
         year = int(self.year_combo.currentText())
-        counts = counts_for_year(data, year)
+        counts = counts_per_day(data, year)
         self.heatmap.set_data(year, counts)
-        self.total_label.setText(
-            f"{sum(int(v) for v in counts.values())} pulls in {year}")
+        self.total_label.setText(f"{sum(counts.values())} pulls in {year}")
+
+        self._refresh_graph()
 
     def _on_tab_changed(self, index):
         if self.tabs.tabText(index) == "Activity":
             self._refresh_activity()
+
+    def _refresh_graph(self, *_args):
+        if not hasattr(self, "graph"):
+            return
+        label = self.graph_view.currentText()
+        period, step = VIEWS[label]
+        ref = self.graph_date.date().toPython()
+        counts, labels, ticks, title = build_graph_data(
+            period, step, ref, self._pulls)
+        self.graph.set_data(counts, labels, ticks, title)
 
     @staticmethod
     def _plural(value, unit):

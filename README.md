@@ -122,7 +122,10 @@ More points means higher recall and more false positives; it is a single knob.
 - **Desktop notification + optional sound** when an episode starts.
 - **Configurable** contact points, radius, frame rate, cooldown, notification
   text, and sound file, editable in the GUI or in `config.json`.
-- **Activity calendar**: a GitHub-style yearly heatmap of pulls per day.
+- **Activity calendar**: a GitHub-style yearly heatmap of pulls per day; hover
+  a square to see that day's exact count.
+- **Activity graph**: pulls per minute, hour, day, week, or month over a
+  selectable window.
 - **Streak timer**: "I have not pulled my hair in X days, Y hours, …",
   reset by every pull.
 - **100% local**: no account, no server, no cloud.
@@ -216,27 +219,45 @@ Two notes:
 ## Activity tracking
 
 Episodes are counted once per pull *episode* (the rising edge of the detected
-state), not once per frame. Data is stored in `activity.json`:
+state), not once per frame. Every pull is stored with its exact timestamp in
+`activity.json`:
 
 ```json
 {
-  "last_pull": "2026-10-30T14:25:00",
-  "2026": {
-    "2026-10-29": 1,
-    "2026-10-30": 3
-  }
+  "2026": [
+    "2026-10-29T09:05:00",
+    "2026-10-30T14:25:00",
+    "2026-10-30T14:27:12"
+  ]
 }
 ```
 
 - Top-level keys are **years**; a new year is created automatically.
-- Each year maps ISO dates to the number of pulls that day (only non-zero days
-  are stored).
-- `last_pull` is the timestamp of the most recent pull, used by the streak
-  timer.
+- Each year is a list of ISO timestamps, one per pull.
+- The streak timer and the graph are derived from these timestamps; there is no
+  separate summary field.
+
+### Calendar and graph
 
 The heatmap starts **bright green** `(0, 255, 0)` for a day with no pulling.
 Every pull removes 10 from the green channel, so 26+ pulls in a day is black:
 the more you pull, the more the reward drains out of the calendar.
+
+Below it, the graph shows pulls per bucket for a selectable window:
+
+| Period | Step | X-axis |
+|---|---|---|
+| Day | 1 minute | hours, plus a mark at every minute with a pull |
+| Day | 1 hour | each hour |
+| Week | 1 day | Mon-Sun |
+| Month | 1 week | weeks of the month |
+| Month | 1 day | each day |
+| Year | 1 month | Jan-Dec |
+| Year | 1 week | every fourth week |
+| Year | 1 day | month boundaries |
+
+Pick the window with the **Graph** dropdown and the reference date with
+**Date**.
 
 Delete `activity.json` to start with a clean history.
 
@@ -249,8 +270,9 @@ tricho_detector/
 ├── gui.py                    # PySide6 app: Camera / Settings / Activity
 ├── detect.py                 # command-line runner
 ├── detector.py               # shared core: models, decision logic, alerts
-├── activity.py               # per-day counters + last_pull
+├── activity.py               # pull timestamps, streaks, daily counts
 ├── heatmap.py                # yearly heatmap widget
+├── graph.py                  # pulls-per-bucket bar chart
 ├── sound.py                  # cross-platform sound playback
 ├── install.py                # cross-platform installer
 ├── install.sh / install.bat  # installer wrappers
@@ -288,8 +310,8 @@ installer and are not committed to this repository.
 
 - Camera frames are processed in memory and discarded immediately.
 - Nothing is recorded, uploaded, or sent to any server.
-- `activity.json` stores only *counts per day* and the timestamp of the last
-  pull, with no images, no video, and no location data.
+- `activity.json` stores only the timestamp of each pull, with no images, no
+  video, and no location data.
 - The feedback link opens an external Google Form in your browser; nothing is
   sent unless you choose to submit it.
 
