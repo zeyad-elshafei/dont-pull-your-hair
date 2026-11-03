@@ -39,8 +39,9 @@ camera frame
                                                                 (log + notify + sound)
 ```
 
-**1. Hair segmentation.** MediaPipe's Hair Segmenter produces a binary
-hair/background mask at the frame's resolution.
+**1. Hair segmentation.** MediaPipe's Hair Segmenter produces per-pixel
+hair/background probabilities at the frame's resolution. We keep only pixels
+whose hair probability is at least `HAIR_THRESHOLD` (0.7).
 
 **2. Distance transform.** For every pixel we compute the distance to the
 nearest hair pixel (`cv2.distanceTransform`). This is the key trick; see the
@@ -130,7 +131,7 @@ More points means higher recall and more false positives; it is a single knob.
 - **Activity graph**: pulls per minute, hour, day, week, or month over a
   selectable window; hover a bar to see the exact bucket and count.
 - **Streak timer**: "I have not pulled my hair in X days, Y hours, …",
-  reset by every pull.
+  reset when the app starts and after every pull.
 - **Highscore leaderboard**: the ten longest stretches without pulling, with
   gold, silver, and bronze medals for the top three.
 - **100% local**: no account, no server, no cloud.
@@ -179,7 +180,7 @@ The app opens with three tabs:
 |---|---|
 | **Camera** | Live preview; the status bar turns red while pulling is detected |
 | **Settings** | Edit all tunables, then **Save**. **Reset to Defaults** restores the form |
-| **Activity** | Yearly heatmap, streak timer, and the feedback link |
+| **Activity** | Yearly heatmap, pulls-over-time graph, streak timer, top-10 leaderboard, and the feedback link |
 
 Saving settings hot-applies them; no restart needed.
 
@@ -211,13 +212,16 @@ you can also edit it by hand.
 | `notification_message` | `"Take a breath and move your hand away."` | Notification body |
 | `sound_path` | `""` | Path to a `.wav` / `.mp3` / `.ogg` / `.flac` file, played with each alert; empty = silent |
 
-Three notes:
+Four notes:
 
 - **`radius_px` is in frame pixels**, so it depends on the camera resolution.
   If you change resolution, re-tune it. 12 px at 720p is fairly tight; 15–30 is
   a reasonable range for most people.
 - **`heatmap_green_step`** controls how fast the calendar fades: each pull
   removes that many points from the green channel (1–255).
+- **`HAIR_THRESHOLD`** (in `detector.py`, default `0.7`) is the minimum hair
+  probability for a pixel to count as hair. Lower it to include more hair;
+  raise it to reject false hair regions.
 - **The CLI-only `--dwell-frames`** flag (default 3) controls how many
   consecutive frames are needed before an episode is declared. It is not in
   `config.json`.
@@ -251,7 +255,8 @@ state), not once per frame. Every pull is stored with its exact timestamp in
 - Each year is a list of ISO timestamps, one per pull.
 - `highscores` keeps the ten longest stretches without pulling.
 - A stretch runs from the previous episode to the next. The first stretch of a
-  session runs from app launch to the first episode.
+  session runs from app launch to the first episode, and the open stretch is
+  recorded when the app closes.
 - New stretches are inserted, sorted, and the shortest is dropped. A tie does
   not displace an existing entry.
 - The streak timer and the graph are derived from the timestamps; there is no

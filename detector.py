@@ -35,6 +35,10 @@ HAND_CONFIRM_FRAMES = 3
 # Max normalized distance between palm centers in consecutive frames for two
 # detections to count as the same hand.
 HAND_MATCH_DISTANCE = 0.2
+# Minimum hair-class probability for a pixel to count as hair. The segmenter
+# exposes no threshold of its own; 0.5 matches its argmax output. Raise it to
+# reject false hair regions.
+HAIR_THRESHOLD = 0.75
 
 # Built-in defaults. Any key present in config.json overrides its value here.
 DEFAULTS = {
@@ -150,7 +154,8 @@ class Detector:
                 base_options=python.BaseOptions(
                     model_asset_path=HAIR_SEGMENTER),
                 running_mode=vision.RunningMode.VIDEO,
-                output_category_mask=True,
+                output_category_mask=False,
+                output_confidence_masks=True,
             ))
         self.landmarker = vision.HandLandmarker.create_from_options(
             vision.HandLandmarkerOptions(
@@ -158,9 +163,9 @@ class Detector:
                     model_asset_path=HAND_LANDMARKER),
                 running_mode=vision.RunningMode.VIDEO,
                 num_hands=2,
-                min_hand_detection_confidence=0.75,
-                min_hand_presence_confidence=0.75,
-                min_tracking_confidence=0.75,
+                min_hand_detection_confidence=0.8,
+                min_hand_presence_confidence=0.8,
+                min_tracking_confidence=0.8,
             ))
         try:
             self.notifier = DesktopNotifierSync(app_name="Tricho")
@@ -175,6 +180,7 @@ class Detector:
         self._last_warn = False
         self._session_start = datetime.datetime.now()
         self._last_episode = None
+        self._closed = False
 
     def process(self, frame, timestamp_ms, cfg, dwell_frames=3):
         """Run one frame. cfg supplies contact_points/radius/cooldown/text."""
@@ -185,8 +191,9 @@ class Detector:
 
         # --- hair mask (frame resolution, 1 = hair) ----------------------
         seg = self.segmenter.segment_for_video(mp_img, timestamp_ms)
-        hair = seg.category_mask.numpy_view().copy()  # (H, W, 1) uint8
-        hair_bin = (hair[:, :, 0] > 0).astype(np.uint8)
+        # confidence_masks[1] is the hair class; threshold it ourselves.
+        hair_conf = seg.confidence_masks[1].numpy_view()  # (H, W, 1) float
+        hair_bin = (hair_conf[:, :, 0] >= HAIR_THRESHOLD).astype(np.uint8)
 
         if hair_bin.any():
             dist = cv2.distanceTransform(1 - hair_bin, cv2.DIST_L2, 5)
@@ -283,7 +290,22 @@ class Detector:
         self._hand_tracks = new_tracks
         return confirmed
 
+    def finalize_session(self):
+        """Record the currently open no-pull stretch (app close)."""
+        if getattr(self, "_closed", False):
+            return
+        self._closed = True
+        now = datetime.datetime.now()
+        start = self._last_episode or self._session_start
+        try:
+            data = load_activity()
+            record_duration(data, start, now)
+            save_activity(data)
+        except OSError as e:
+            print(f"[activity] save failed: {e}", file=sys.stderr)
+
     def close(self):
+        self.finalize_session()
         self.segmenter.close()
         self.landmarker.close()
 

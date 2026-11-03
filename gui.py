@@ -41,8 +41,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from activity import (all_pulls, counts_per_day, last_pull_time,
-                      load_activity, load_highscores, years_in)
+from activity import (all_pulls, counts_per_day, load_activity,
+                      load_highscores, years_in)
 from detector import (
     CONFIG_PATH,
     DEFAULTS,
@@ -179,7 +179,7 @@ class MainWindow(QMainWindow):
         self._last_image = None
         self._preview_player = None
         self._last_pull = None
-        self._has_pulls = False
+        self._session_start = datetime.datetime.now()
         self._pulls = []
 
         tabs = QTabWidget()
@@ -198,7 +198,7 @@ class MainWindow(QMainWindow):
         self.worker = DetectorWorker(cfg)
         self.worker.frame_ready.connect(self._on_frame)
         self.worker.status_ready.connect(self._on_status)
-        self.worker.pull_recorded.connect(self._refresh_activity)
+        self.worker.pull_recorded.connect(self._on_pull_recorded)
         self.worker.failed.connect(self._on_failed)
         self.worker.start()
 
@@ -237,14 +237,32 @@ class MainWindow(QMainWindow):
 
     def _build_settings_tab(self):
         page = QWidget()
-        outer = QVBoxLayout(page)
+        page.setObjectName("settingsPage")
+        page.setStyleSheet("#settingsPage { background:#f5f6f8; }")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        title = QLabel("Settings")
+        title.setStyleSheet("font-size:22px; font-weight:800; color:#111827;")
+        layout.addWidget(title)
+        subtitle = QLabel("Tune detection, the calendar, and alerts")
+        subtitle.setStyleSheet("font-size:12px; color:#6b7280;")
+        layout.addWidget(subtitle)
+
+        # --- Detection -----------------------------------------------------
+        detection_card, detection_layout = self._card("Detection", "🎯")
         form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setSpacing(10)
+        form.setLabelAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         self.points_edit = QLineEdit()
         self.points_edit.setPlaceholderText("4,8,12,16,20,3,7,11,15,19")
         form.addRow("Contact points (0–20):", self.points_edit)
         hint = QLabel("Fingertips: 4, 8, 12, 16, 20 · DIP joints: 3, 7, 11, 15, 19")
-        hint.setStyleSheet("color:#777;")
+        hint.setStyleSheet("color:#6b7280;")
         form.addRow("", hint)
 
         self.cooldown_spin = QDoubleSpinBox()
@@ -260,7 +278,7 @@ class MainWindow(QMainWindow):
         self.interval_spin.setSuffix(" ms")
         self.interval_spin.valueChanged.connect(self._update_fps)
         self.fps_label = QLabel()
-        self.fps_label.setStyleSheet("color:#777;")
+        self.fps_label.setStyleSheet("color:#6b7280;")
         form.addRow("Frame interval:", self.interval_spin)
         form.addRow("", self.fps_label)
 
@@ -271,22 +289,44 @@ class MainWindow(QMainWindow):
         self.radius_spin.setSuffix(" px")
         form.addRow("Contact radius:", self.radius_spin)
 
+        detection_layout.addLayout(form)
+        layout.addWidget(detection_card)
+
+        # --- Calendar ------------------------------------------------------
+        calendar_card, calendar_layout = self._card("Calendar", "🎨")
+        calendar_form = QFormLayout()
+        calendar_form.setContentsMargins(0, 0, 0, 0)
+        calendar_form.setSpacing(10)
+        calendar_form.setLabelAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
         self.color_step_spin = QSpinBox()
         self.color_step_spin.setRange(1, 255)
         self.color_step_spin.setSingleStep(1)
-        form.addRow("Heatmap step:", self.color_step_spin)
+        calendar_form.addRow("Heatmap step:", self.color_step_spin)
         color_hint = QLabel(
             "Green removed per pull. At 10, a day with 10 pulls is (0, 155, 0) "
             "and 26+ pulls turns the square black. Higher values fade faster.")
         color_hint.setWordWrap(True)
-        color_hint.setStyleSheet("color:#777;")
-        form.addRow("", color_hint)
+        color_hint.setStyleSheet("color:#6b7280;")
+        calendar_form.addRow("", color_hint)
+
+        calendar_layout.addLayout(calendar_form)
+        layout.addWidget(calendar_card)
+
+        # --- Alerts --------------------------------------------------------
+        alerts_card, alerts_layout = self._card("Alerts", "🔔")
+        alerts_form = QFormLayout()
+        alerts_form.setContentsMargins(0, 0, 0, 0)
+        alerts_form.setSpacing(10)
+        alerts_form.setLabelAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         self.title_edit = QLineEdit()
-        form.addRow("Notification title:", self.title_edit)
+        alerts_form.addRow("Notification title:", self.title_edit)
 
         self.message_edit = QLineEdit()
-        form.addRow("Notification message:", self.message_edit)
+        alerts_form.addRow("Notification message:", self.message_edit)
 
         sound_row = QHBoxLayout()
         self.sound_edit = QLineEdit()
@@ -299,65 +339,132 @@ class MainWindow(QMainWindow):
         self.sound_test = QPushButton("Test")
         self.sound_test.clicked.connect(self._test_sound)
         sound_row.addWidget(self.sound_test)
-        form.addRow("Sound effect:", sound_row)
+        alerts_form.addRow("Sound effect:", sound_row)
 
-        outer.addLayout(form)
-        outer.addStretch(1)
+        alerts_layout.addLayout(alerts_form)
+        layout.addWidget(alerts_card)
 
+        layout.addStretch(1)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(page)
+
+        # --- Sticky save / reset footer ------------------------------------
         self.status_label = QLabel("")
         self.status_label.setWordWrap(True)
-        outer.addWidget(self.status_label)
 
         buttons = QHBoxLayout()
         self.save_button = QPushButton("Save")
+        self.save_button.setStyleSheet(
+            "QPushButton { background:#2e7d32; color:white; font-weight:600; "
+            "padding:8px 24px; border:none; border-radius:8px; }"
+            "QPushButton:hover { background:#276b2b; }")
         self.save_button.clicked.connect(self._save)
         self.reset_button = QPushButton("Reset to Defaults")
+        self.reset_button.setStyleSheet(
+            "QPushButton { background:#ffffff; color:#374151; font-weight:600; "
+            "padding:8px 20px; border:1px solid #d1d5db; border-radius:8px; }"
+            "QPushButton:hover { background:#f3f4f6; }")
         self.reset_button.clicked.connect(self._reset)
         buttons.addWidget(self.save_button)
         buttons.addWidget(self.reset_button)
-        outer.addLayout(buttons)
+        buttons.addStretch(1)
 
-        return page
+        footer = QWidget()
+        footer.setObjectName("settingsFooter")
+        footer.setStyleSheet(
+            "#settingsFooter { background:#ffffff; "
+            "border-top:1px solid #e4e7ec; }")
+        footer_layout = QVBoxLayout(footer)
+        footer_layout.setContentsMargins(16, 10, 16, 12)
+        footer_layout.setSpacing(6)
+        footer_layout.addWidget(self.status_label)
+        footer_layout.addLayout(buttons)
+
+        wrapper = QWidget()
+        wrapper_layout = QVBoxLayout(wrapper)
+        wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        wrapper_layout.setSpacing(0)
+        wrapper_layout.addWidget(scroll, 1)
+        wrapper_layout.addWidget(footer)
+        return wrapper
+
+    @staticmethod
+    def _card(title, icon=""):
+        card = QFrame()
+        card.setObjectName("card")
+        card.setStyleSheet(
+            "QFrame#card { background:#ffffff; border:1px solid #e4e7ec; "
+            "border-radius:12px; }")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
+        heading = QLabel(f"{icon}  {title}")
+        heading.setStyleSheet(
+            "font-size:14px; font-weight:700; color:#1f2937;")
+        layout.addWidget(heading)
+        return card, layout
 
     def _build_activity_tab(self):
         page = QWidget()
+        page.setObjectName("activityPage")
+        page.setStyleSheet("#activityPage { background:#f5f6f8; }")
         layout = QVBoxLayout(page)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
 
-        header = QHBoxLayout()
-        header.addWidget(QLabel("Year:"))
+        title = QLabel("Your activity")
+        title.setStyleSheet("font-size:22px; font-weight:800; color:#111827;")
+        layout.addWidget(title)
+        subtitle = QLabel("Patterns, streaks, and records at a glance")
+        subtitle.setStyleSheet("font-size:12px; color:#6b7280;")
+        layout.addWidget(subtitle)
+
+        calendar_card, calendar_layout = self._card("Pull calendar", "📅")
+        calendar_header = QHBoxLayout()
+        calendar_header.addWidget(QLabel("Year:"))
         self.year_combo = QComboBox()
         self.year_combo.currentTextChanged.connect(self._refresh_activity)
-        header.addWidget(self.year_combo)
-        header.addStretch(1)
+        calendar_header.addWidget(self.year_combo)
+        calendar_header.addStretch(1)
         self.total_label = QLabel("")
-        header.addWidget(self.total_label)
-        layout.addLayout(header)
+        self.total_label.setStyleSheet(
+            "font-size:13px; font-weight:600; color:#2e7d32;")
+        calendar_header.addWidget(self.total_label)
+        calendar_layout.addLayout(calendar_header)
 
         self.heatmap = HeatmapWidget()
-        layout.addWidget(self.heatmap)
+        calendar_layout.addWidget(self.heatmap)
 
         self.contact_label = QLabel(
             f'<a href="{FEEDBACK_URL}" '
-            'style="color:#2a6fb0; font-size:15px;">Contact us</a>')
+            'style="color:#2a6fb0; font-size:14px;">Contact us</a>')
         self.contact_label.setOpenExternalLinks(True)
         self.contact_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        layout.addWidget(self.contact_label)
+        calendar_layout.addWidget(self.contact_label)
 
         self.description_label = QLabel(
             "Each square is one day. A day with no pulling stays bright green; "
             "every pull removes 10 from the green channel, so darker squares "
             "mean more pulling that day.")
         self.description_label.setWordWrap(True)
-        self.description_label.setStyleSheet("color:#666;")
-        layout.addWidget(self.description_label)
+        self.description_label.setStyleSheet("color:#6b7280;")
+        calendar_layout.addWidget(self.description_label)
+        layout.addWidget(calendar_card)
 
+        streak_card, streak_layout = self._card("Current streak", "🔥")
         self.streak_label = QLabel("No pulls recorded yet.")
+        self.streak_label.setWordWrap(True)
         self.streak_label.setStyleSheet(
-            "font-size:17px; font-weight:bold; padding-top:4px;")
-        layout.addWidget(self.streak_label)
+            "font-size:20px; font-weight:700; color:#14532d;")
+        streak_layout.addWidget(self.streak_label)
+        layout.addWidget(streak_card)
 
+        graph_card, graph_layout = self._card("Pulls over time", "📈")
         graph_controls = QHBoxLayout()
-        graph_controls.addWidget(QLabel("Graph:"))
+        graph_controls.addWidget(QLabel("View:"))
         self.graph_view = QComboBox()
         self.graph_view.addItems(list(VIEWS.keys()))
         self.graph_view.setCurrentText("Year · 1 month")
@@ -371,21 +478,24 @@ class MainWindow(QMainWindow):
         self.graph_date.dateChanged.connect(self._refresh_graph)
         graph_controls.addWidget(self.graph_date)
         graph_controls.addStretch(1)
-        layout.addLayout(graph_controls)
-
+        graph_layout.addLayout(graph_controls)
         self.graph = PullGraph()
-        layout.addWidget(self.graph)
+        graph_layout.addWidget(self.graph)
+        layout.addWidget(graph_card)
 
-        self.highscores_title = QLabel("Longest stretches without pulling")
-        self.highscores_title.setStyleSheet(
-            "font-size:15px; font-weight:bold; padding-top:10px;")
-        layout.addWidget(self.highscores_title)
-
+        leaderboard_card, leaderboard_layout = self._card(
+            "Longest stretches without pulling", "🏆")
         self.highscores_container = QWidget()
         self.highscores_layout = QVBoxLayout(self.highscores_container)
         self.highscores_layout.setContentsMargins(0, 0, 0, 0)
-        self.highscores_layout.setSpacing(2)
-        layout.addWidget(self.highscores_container)
+        self.highscores_layout.setSpacing(0)
+        leaderboard_layout.addWidget(self.highscores_container)
+        layout.addWidget(leaderboard_card)
+
+        footer = QLabel("All data stays on your device")
+        footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        footer.setStyleSheet("color:#9ca3af; font-size:11px; padding-top:4px;")
+        layout.addWidget(footer)
 
         layout.addStretch(1)
 
@@ -468,14 +578,16 @@ class MainWindow(QMainWindow):
         self.year_combo.blockSignals(False)
 
         self._pulls = all_pulls(data)
-        self._last_pull = last_pull_time(data)
-        self._has_pulls = bool(self._pulls)
         self._update_streak()
 
         year = int(self.year_combo.currentText())
         counts = counts_per_day(data, year)
         step = int(self.cfg["heatmap_green_step"])
         self.heatmap.set_data(year, counts, step)
+        self.description_label.setText(
+            "Each square is one day. A day with no pulling stays bright green; "
+            f"every pull removes {step} from the green channel, so darker "
+            "squares mean more pulling that day.")
         self.total_label.setText(f"{sum(counts.values())} pulls in {year}")
 
         self._refresh_graph()
@@ -508,7 +620,7 @@ class MainWindow(QMainWindow):
                 "No durations yet. A stretch starts when you launch the app "
                 "and ends at your first pull.")
             empty.setWordWrap(True)
-            empty.setStyleSheet("color:#777;")
+            empty.setStyleSheet("color:#6b7280; padding:6px 2px;")
             self.highscores_layout.addWidget(empty)
             return
 
@@ -527,28 +639,31 @@ class MainWindow(QMainWindow):
                 label = QLabel(text)
                 label.setStyleSheet(
                     f"font-size:{sizes[rank]}px; font-weight:bold; "
-                    f"color:{colors[rank]};")
+                    f"color:{colors[rank]}; padding:6px 2px;")
             else:
                 text = (f"{rank + 1}. {duration}"
                         f"<span style='color:#777; font-size:11px;'>"
                         f"&nbsp;&nbsp;{span}</span>")
                 label = QLabel(text)
-                label.setStyleSheet("font-size:13px;")
+                label.setStyleSheet("font-size:13px; padding:6px 2px;")
 
             label.setTextFormat(Qt.TextFormat.RichText)
             self.highscores_layout.addWidget(label)
+
+            if rank < len(scores) - 1:
+                line = QFrame()
+                line.setFrameShape(QFrame.Shape.HLine)
+                line.setFixedHeight(1)
+                line.setStyleSheet("background:#eceff3; border:none;")
+                self.highscores_layout.addWidget(line)
 
     @staticmethod
     def _plural(value, unit):
         return f"{value} {unit}" + ("" if value == 1 else "s")
 
     def _update_streak(self):
-        if self._last_pull is None:
-            self.streak_label.setText(
-                "Last pull time unavailable." if self._has_pulls
-                else "No pulls recorded yet.")
-            return
-        elapsed = int((datetime.datetime.now() - self._last_pull).total_seconds())
+        start = self._last_pull or self._session_start
+        elapsed = int((datetime.datetime.now() - start).total_seconds())
         elapsed = max(0, elapsed)
         days, rest = divmod(elapsed, 86400)
         hours, rest = divmod(rest, 3600)
@@ -558,6 +673,10 @@ class MainWindow(QMainWindow):
             f"{self._plural(days, 'day')}, {self._plural(hours, 'hour')}, "
             f"{self._plural(minutes, 'minute')}, "
             f"{self._plural(seconds, 'second')}")
+
+    def _on_pull_recorded(self):
+        self._last_pull = datetime.datetime.now()
+        self._refresh_activity()
 
     # ---------------------------------------------------------------- actions
     def _save(self):
