@@ -15,11 +15,11 @@ MIN_CELL = 4
 MAX_CELL = 16
 
 
-def color_for(count):
-    """Green at 0 pulls; every pull lowers G by 10 (green -> black)."""
+def color_for(count, step=10):
+    """Green at 0 pulls; every pull lowers G by `step` (green -> black)."""
     if count <= 0:
         return QColor(0, 255, 0)
-    green = max(0, 255 - 10 * count)
+    green = max(0, 255 - step * count)
     return QColor(0, green, 0)
 
 
@@ -30,14 +30,16 @@ class HeatmapWidget(QWidget):
         super().__init__(parent)
         self._year = datetime.date.today().year
         self._counts = {}
+        self._step = 10
         self._cell_rects = []
         self._hovered = None
         self.setMouseTracking(True)
         self.setMinimumHeight(120)
 
-    def set_data(self, year, counts):
+    def set_data(self, year, counts, step=10):
         self._year = int(year)
         self._counts = counts or {}
+        self._step = int(step)
         self._hovered = None
         self.update()
 
@@ -101,7 +103,7 @@ class HeatmapWidget(QWidget):
                 iso = datetime.date(self._year, month, day).isoformat()
                 count = int(self._counts.get(iso, 0))
                 rect = QRectF(x + col * step, TOP + row * step, cell, cell)
-                painter.fillRect(rect, color_for(count))
+                painter.fillRect(rect, color_for(count, self._step))
                 painter.setPen(border)
                 painter.drawRect(rect)
                 self._cell_rects.append(

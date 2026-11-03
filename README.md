@@ -47,7 +47,10 @@ nearest hair pixel (`cv2.distanceTransform`). This is the key trick; see the
 next section.
 
 **3. Hand landmarks.** MediaPipe's Hand Landmarker returns 21 landmarks per
-hand in normalized coordinates, which we map to frame pixels.
+hand in normalized coordinates, which we map to frame pixels. A hand must be
+seen for several consecutive frames before its landmarks are used, which
+suppresses transient false positives (for example, facial features briefly
+misread as a hand).
 
 **4. Contact test.** For each *contact point* (fingertips and the knuckle just
 before each tip), we look up the distance to the nearest hair pixel. If that
@@ -125,9 +128,11 @@ More points means higher recall and more false positives; it is a single knob.
 - **Activity calendar**: a GitHub-style yearly heatmap of pulls per day; hover
   a square to see that day's exact count.
 - **Activity graph**: pulls per minute, hour, day, week, or month over a
-  selectable window.
+  selectable window; hover a bar to see the exact bucket and count.
 - **Streak timer**: "I have not pulled my hair in X days, Y hours, …",
   reset by every pull.
+- **Highscore leaderboard**: the ten longest stretches without pulling, with
+  gold, silver, and bronze medals for the top three.
 - **100% local**: no account, no server, no cloud.
 
 ---
@@ -201,15 +206,18 @@ you can also edit it by hand.
 | `cooldown_seconds` | `5.0` | Minimum seconds between alerts |
 | `frame_interval_ms` | `100` | Milliseconds between processed frames (100 = 10 FPS) |
 | `radius_px` | `12.0` | Max distance from a contact point to hair, in frame pixels |
+| `heatmap_green_step` | `10` | Green removed from a day's square per pull (1–255) |
 | `notification_title` | `"Stop pulling your hair!"` | Notification heading |
 | `notification_message` | `"Take a breath and move your hand away."` | Notification body |
 | `sound_path` | `""` | Path to a `.wav` / `.mp3` / `.ogg` / `.flac` file, played with each alert; empty = silent |
 
-Two notes:
+Three notes:
 
 - **`radius_px` is in frame pixels**, so it depends on the camera resolution.
   If you change resolution, re-tune it. 12 px at 720p is fairly tight; 15–30 is
   a reasonable range for most people.
+- **`heatmap_green_step`** controls how fast the calendar fades: each pull
+  removes that many points from the green channel (1–255).
 - **The CLI-only `--dwell-frames`** flag (default 3) controls how many
   consecutive frames are needed before an episode is declared. It is not in
   `config.json`.
@@ -228,20 +236,34 @@ state), not once per frame. Every pull is stored with its exact timestamp in
     "2026-10-29T09:05:00",
     "2026-10-30T14:25:00",
     "2026-10-30T14:27:12"
+  ],
+  "highscores": [
+    {
+      "start": "2026-10-01T10:00:00",
+      "end": "2026-10-03T12:00:00",
+      "seconds": 180000
+    }
   ]
 }
 ```
 
-- Top-level keys are **years**; a new year is created automatically.
+- The year keys are **years**; a new year is created automatically.
 - Each year is a list of ISO timestamps, one per pull.
-- The streak timer and the graph are derived from these timestamps; there is no
+- `highscores` keeps the ten longest stretches without pulling.
+- A stretch runs from the previous episode to the next. The first stretch of a
+  session runs from app launch to the first episode.
+- New stretches are inserted, sorted, and the shortest is dropped. A tie does
+  not displace an existing entry.
+- The streak timer and the graph are derived from the timestamps; there is no
   separate summary field.
 
 ### Calendar and graph
 
 The heatmap starts **bright green** `(0, 255, 0)` for a day with no pulling.
-Every pull removes 10 from the green channel, so 26+ pulls in a day is black:
-the more you pull, the more the reward drains out of the calendar.
+Every pull removes `heatmap_green_step` from the green channel (10 by default),
+so with the default 26+ pulls in a day is black: the more you pull, the more the
+reward drains out of the calendar. Change the step in Settings if you want the
+calendar to fade faster or slower.
 
 Below it, the graph shows pulls per bucket for a selectable window:
 

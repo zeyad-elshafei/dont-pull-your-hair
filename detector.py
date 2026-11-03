@@ -5,7 +5,9 @@ No GUI dependencies live here; both the CLI (detect.py) and the GUI (gui.py)
 build on the Detector class and the config helpers below.
 """
 
+import datetime
 import json
+import math
 import os
 import sys
 import time
@@ -18,7 +20,7 @@ from desktop_notifier import DesktopNotifierSync
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
-from activity import load_activity, record_pull, save_activity
+from activity import load_activity, record_duration, record_pull, save_activity
 from sound import SoundPlayer
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -27,12 +29,20 @@ CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 HAIR_SEGMENTER = os.path.join(BASE_DIR, "models", "hair_segmenter.tflite")
 HAND_LANDMARKER = os.path.join(BASE_DIR, "models", "hand_landmarker.task")
 
+# A hand must be seen in this many consecutive frames before its landmarks are
+# used. Raise it to reject transient false positives; 1 disables the check.
+HAND_CONFIRM_FRAMES = 3
+# Max normalized distance between palm centers in consecutive frames for two
+# detections to count as the same hand.
+HAND_MATCH_DISTANCE = 0.2
+
 # Built-in defaults. Any key present in config.json overrides its value here.
 DEFAULTS = {
     "contact_points": [4, 8, 12, 16, 20, 3, 7, 11, 15, 19],
     "cooldown_seconds": 5.0,
     "frame_interval_ms": 100,
     "radius_px": 12.0,
+    "heatmap_green_step": 10,
     "notification_title": "Stop pulling your hair!",
     "notification_message": "Take a breath and move your hand away.",
     "sound_path": "",
@@ -70,6 +80,13 @@ def validate_config(cfg):
     out["cooldown_seconds"] = number("cooldown_seconds", 0)
     out["frame_interval_ms"] = number("frame_interval_ms", 0, exclusive=True)
     out["radius_px"] = number("radius_px", 0)
+
+    step = out.get("heatmap_green_step")
+    if (isinstance(step, bool) or not isinstance(step, int)
+            or not 1 <= step <= 255):
+        raise ConfigError(
+            "heatmap_green_step must be an integer in the range 1..255")
+    out["heatmap_green_step"] = int(step)
 
     for key in ("notification_title", "notification_message", "sound_path"):
         if not isinstance(out.get(key), str):
@@ -141,6 +158,9 @@ class Detector:
                     model_asset_path=HAND_LANDMARKER),
                 running_mode=vision.RunningMode.VIDEO,
                 num_hands=2,
+                min_hand_detection_confidence=0.75,
+                min_hand_presence_confidence=0.75,
+                min_tracking_confidence=0.75,
             ))
         try:
             self.notifier = DesktopNotifierSync(app_name="Tricho")
@@ -149,9 +169,12 @@ class Detector:
             print(f"[notify] disabled: {e}", file=sys.stderr)
 
         self._sound = SoundPlayer()
+        self._hand_tracks = []
         self._streak = 0
         self._last_alert = float("-inf")
         self._last_warn = False
+        self._session_start = datetime.datetime.now()
+        self._last_episode = None
 
     def process(self, frame, timestamp_ms, cfg, dwell_frames=3):
         """Run one frame. cfg supplies contact_points/radius/cooldown/text."""
@@ -171,12 +194,13 @@ class Detector:
             dist = None  # no hair detected -> nothing can be "in hair"
 
         # --- contact points ----------------------------------------------
-        hands = self.landmarker.detect_for_video(mp_img, timestamp_ms)
+        hand_result = self.landmarker.detect_for_video(mp_img, timestamp_ms)
+        hands = self._confirmed_hands(hand_result.hand_landmarks)
         pulling = False
         points = []
 
         if dist is not None:
-            for hand in hands.hand_landmarks:
+            for hand in hands:
                 for idx in cfg["contact_points"]:
                     lm = hand[idx]
                     x = min(max(int(round(lm.x * W)), 0), W - 1)
@@ -193,12 +217,16 @@ class Detector:
         episode_started = warn and not self._last_warn
         self._last_warn = warn
         if episode_started:
+            now = datetime.datetime.now()
+            start = self._last_episode or self._session_start
             try:
                 data = load_activity()
-                record_pull(data)
+                record_pull(data, when=now)
+                record_duration(data, start, now)
                 save_activity(data)
             except OSError as e:
                 print(f"[activity] save failed: {e}", file=sys.stderr)
+            self._last_episode = now
 
         if warn:
             now = time.monotonic()
@@ -216,6 +244,44 @@ class Detector:
 
         return Result(warn=warn, pulling=pulling, points=points,
                       hair_mask=hair_bin, episode_started=episode_started)
+
+    def _confirmed_hands(self, hands):
+        """Keep only hands that have appeared for HAND_CONFIRM_FRAMES frames."""
+        centroids = []
+        for hand in hands:
+            cx = sum(lm.x for lm in hand) / len(hand)
+            cy = sum(lm.y for lm in hand) / len(hand)
+            centroids.append((cx, cy))
+
+        confirmed = []
+        new_tracks = []
+        used = [False] * len(self._hand_tracks)
+
+        for hand, (cx, cy) in zip(hands, centroids):
+            best_index = None
+            best_distance = HAND_MATCH_DISTANCE
+            for i, track in enumerate(self._hand_tracks):
+                if used[i]:
+                    continue
+                distance = math.hypot(cx - track["cx"], cy - track["cy"])
+                if distance < best_distance:
+                    best_distance = distance
+                    best_index = i
+
+            if best_index is None:
+                track = {"cx": cx, "cy": cy, "streak": 1}
+            else:
+                used[best_index] = True
+                track = self._hand_tracks[best_index]
+                track["streak"] += 1
+                track["cx"], track["cy"] = cx, cy
+
+            new_tracks.append(track)
+            if track["streak"] >= HAND_CONFIRM_FRAMES:
+                confirmed.append(hand)
+
+        self._hand_tracks = new_tracks
+        return confirmed
 
     def close(self):
         self.segmenter.close()

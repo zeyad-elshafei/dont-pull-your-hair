@@ -6,7 +6,7 @@ import datetime
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QToolTip, QWidget
 
 # Dropdown label -> (period, step)
 VIEWS = {
@@ -157,7 +157,24 @@ def build_graph_data(period, step, ref, pulls):
     else:
         when = str(start.year)
 
-    return counts, labels, ticks, f"Pulls per {step} · {when}"
+    descriptions = []
+    for bucket_start in starts:
+        if step == "minute":
+            descriptions.append(bucket_start.strftime("%d %b %Y, %H:%M"))
+        elif step == "hour":
+            descriptions.append(bucket_start.strftime("%d %b %Y, %H:00"))
+        elif step == "day":
+            descriptions.append(bucket_start.strftime("%a %d %b %Y"))
+        elif step == "week":
+            last = min(bucket_start + datetime.timedelta(days=6),
+                       end - datetime.timedelta(days=1))
+            descriptions.append(
+                f"{bucket_start.strftime('%d %b')} - "
+                f"{last.strftime('%d %b %Y')}")
+        else:
+            descriptions.append(bucket_start.strftime("%B %Y"))
+
+    return counts, labels, ticks, f"Pulls per {step} · {when}", descriptions
 
 
 class PullGraph(QWidget):
@@ -169,13 +186,21 @@ class PullGraph(QWidget):
         self._labels = {}
         self._ticks = set()
         self._title = ""
+        self._descriptions = []
+        self._plot = None
+        self._n = 0
+        self._bar_w = 1.0
+        self._hovered = None
+        self.setMouseTracking(True)
         self.setMinimumHeight(230)
 
-    def set_data(self, counts, labels, ticks, title):
+    def set_data(self, counts, labels, ticks, title, descriptions):
         self._counts = counts
         self._labels = labels
         self._ticks = ticks
         self._title = title
+        self._descriptions = descriptions
+        self._hovered = None
         self.update()
 
     def paintEvent(self, event):
@@ -186,6 +211,9 @@ class PullGraph(QWidget):
         plot = QRectF(left, top,
                       max(1, self.width() - left - right),
                       max(1, self.height() - top - bottom))
+        self._plot = plot
+        self._n = 0
+        self._bar_w = 1.0
 
         title_font = QFont()
         title_font.setPointSize(9)
@@ -235,8 +263,10 @@ class PullGraph(QWidget):
 
         n = len(self._counts)
         bar_w = plot.width() / n
+        self._n = n
+        self._bar_w = bar_w
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(46, 125, 50))
+        painter.setBrush(QColor(198, 40, 40))
         for i, count in enumerate(self._counts):
             if count <= 0:
                 continue
@@ -257,3 +287,36 @@ class PullGraph(QWidget):
                     QRectF(x - 32, plot.bottom() + 5, 64, 16),
                     int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop),
                     label)
+
+    def _tooltip_text(self, index):
+        count = self._counts[index]
+        if count == 0:
+            amount = "No pulls"
+        else:
+            amount = f"{count} pull" + ("" if count == 1 else "s")
+        label = (self._descriptions[index]
+                 if index < len(self._descriptions) else "")
+        return f"{label}\n{amount}" if label else amount
+
+    def mouseMoveEvent(self, event):
+        pos = event.position()
+        if (self._plot is None or self._n == 0
+                or not self._plot.contains(pos)):
+            if self._hovered is not None:
+                self._hovered = None
+                QToolTip.hideText()
+            super().mouseMoveEvent(event)
+            return
+
+        index = int((pos.x() - self._plot.left()) / self._bar_w)
+        index = max(0, min(index, self._n - 1))
+        if index != self._hovered:
+            self._hovered = index
+            QToolTip.showText(event.globalPosition().toPoint(),
+                              self._tooltip_text(index), self)
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = None
+        QToolTip.hideText()
+        super().leaveEvent(event)

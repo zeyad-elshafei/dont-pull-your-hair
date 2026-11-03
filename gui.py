@@ -27,11 +27,13 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMainWindow,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSpinBox,
     QTabWidget,
@@ -40,7 +42,7 @@ from PySide6.QtWidgets import (
 )
 
 from activity import (all_pulls, counts_per_day, last_pull_time,
-                      load_activity, years_in)
+                      load_activity, load_highscores, years_in)
 from detector import (
     CONFIG_PATH,
     DEFAULTS,
@@ -60,6 +62,37 @@ DWELL_FRAMES = 3
 FEEDBACK_URL = ("https://docs.google.com/forms/d/e/"
                 "1FAIpQLSfDUIuLhHDg1paNdIf2CJqjNX1tQKJW5cqKV-TVLTISETO0Cw/"
                 "viewform?usp=publish-editor")
+
+
+def format_duration(seconds):
+    seconds = max(0, int(seconds))
+    days, rest = divmod(seconds, 86400)
+    hours, rest = divmod(rest, 3600)
+    minutes, secs = divmod(rest, 60)
+
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours or days:
+        parts.append(f"{hours}h")
+    if minutes or hours or days:
+        parts.append(f"{minutes}m")
+    parts.append(f"{secs}s")
+    return " ".join(parts)
+
+
+def format_range(start_iso, end_iso):
+    try:
+        start = datetime.datetime.fromisoformat(start_iso)
+        end = datetime.datetime.fromisoformat(end_iso)
+    except (TypeError, ValueError):
+        return f"{start_iso} - {end_iso}"
+
+    if start.date() == end.date():
+        return (f"{start.strftime('%d %b %Y, %H:%M')} - "
+                f"{end.strftime('%H:%M')}")
+    return (f"{start.strftime('%d %b %Y, %H:%M')} - "
+            f"{end.strftime('%d %b %Y, %H:%M')}")
 
 
 class DetectorWorker(QThread):
@@ -238,6 +271,17 @@ class MainWindow(QMainWindow):
         self.radius_spin.setSuffix(" px")
         form.addRow("Contact radius:", self.radius_spin)
 
+        self.color_step_spin = QSpinBox()
+        self.color_step_spin.setRange(1, 255)
+        self.color_step_spin.setSingleStep(1)
+        form.addRow("Heatmap step:", self.color_step_spin)
+        color_hint = QLabel(
+            "Green removed per pull. At 10, a day with 10 pulls is (0, 155, 0) "
+            "and 26+ pulls turns the square black. Higher values fade faster.")
+        color_hint.setWordWrap(True)
+        color_hint.setStyleSheet("color:#777;")
+        form.addRow("", color_hint)
+
         self.title_edit = QLineEdit()
         form.addRow("Notification title:", self.title_edit)
 
@@ -332,8 +376,24 @@ class MainWindow(QMainWindow):
         self.graph = PullGraph()
         layout.addWidget(self.graph)
 
+        self.highscores_title = QLabel("Longest stretches without pulling")
+        self.highscores_title.setStyleSheet(
+            "font-size:15px; font-weight:bold; padding-top:10px;")
+        layout.addWidget(self.highscores_title)
+
+        self.highscores_container = QWidget()
+        self.highscores_layout = QVBoxLayout(self.highscores_container)
+        self.highscores_layout.setContentsMargins(0, 0, 0, 0)
+        self.highscores_layout.setSpacing(2)
+        layout.addWidget(self.highscores_container)
+
         layout.addStretch(1)
-        return page
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(page)
+        return scroll
 
     # ------------------------------------------------------------ form helpers
     def _populate(self, cfg):
@@ -341,6 +401,7 @@ class MainWindow(QMainWindow):
         self.cooldown_spin.setValue(float(cfg["cooldown_seconds"]))
         self.interval_spin.setValue(int(round(cfg["frame_interval_ms"])))
         self.radius_spin.setValue(float(cfg["radius_px"]))
+        self.color_step_spin.setValue(int(cfg["heatmap_green_step"]))
         self.title_edit.setText(cfg["notification_title"])
         self.message_edit.setText(cfg["notification_message"])
         self.sound_edit.setText(cfg["sound_path"])
@@ -358,6 +419,7 @@ class MainWindow(QMainWindow):
             "cooldown_seconds": self.cooldown_spin.value(),
             "frame_interval_ms": float(self.interval_spin.value()),
             "radius_px": self.radius_spin.value(),
+            "heatmap_green_step": self.color_step_spin.value(),
             "notification_title": self.title_edit.text(),
             "notification_message": self.message_edit.text(),
             "sound_path": self.sound_edit.text().strip(),
@@ -412,10 +474,12 @@ class MainWindow(QMainWindow):
 
         year = int(self.year_combo.currentText())
         counts = counts_per_day(data, year)
-        self.heatmap.set_data(year, counts)
+        step = int(self.cfg["heatmap_green_step"])
+        self.heatmap.set_data(year, counts, step)
         self.total_label.setText(f"{sum(counts.values())} pulls in {year}")
 
         self._refresh_graph()
+        self._refresh_highscores(data)
 
     def _on_tab_changed(self, index):
         if self.tabs.tabText(index) == "Activity":
@@ -427,9 +491,52 @@ class MainWindow(QMainWindow):
         label = self.graph_view.currentText()
         period, step = VIEWS[label]
         ref = self.graph_date.date().toPython()
-        counts, labels, ticks, title = build_graph_data(
+        counts, labels, ticks, title, descriptions = build_graph_data(
             period, step, ref, self._pulls)
-        self.graph.set_data(counts, labels, ticks, title)
+        self.graph.set_data(counts, labels, ticks, title, descriptions)
+
+    def _refresh_highscores(self, data):
+        while self.highscores_layout.count():
+            item = self.highscores_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        scores = load_highscores(data)
+        if not scores:
+            empty = QLabel(
+                "No durations yet. A stretch starts when you launch the app "
+                "and ends at your first pull.")
+            empty.setWordWrap(True)
+            empty.setStyleSheet("color:#777;")
+            self.highscores_layout.addWidget(empty)
+            return
+
+        medals = ("🥇", "🥈", "🥉")
+        colors = ("#D4AF37", "#A8A9AD", "#CD7F32")
+        sizes = (20, 18, 16)
+
+        for rank, score in enumerate(scores):
+            duration = format_duration(score["seconds"])
+            span = format_range(score["start"], score["end"])
+
+            if rank < 3:
+                text = (f"{medals[rank]} {duration}"
+                        f"<span style='color:#777; font-weight:normal; "
+                        f"font-size:11px;'>&nbsp;&nbsp;{span}</span>")
+                label = QLabel(text)
+                label.setStyleSheet(
+                    f"font-size:{sizes[rank]}px; font-weight:bold; "
+                    f"color:{colors[rank]};")
+            else:
+                text = (f"{rank + 1}. {duration}"
+                        f"<span style='color:#777; font-size:11px;'>"
+                        f"&nbsp;&nbsp;{span}</span>")
+                label = QLabel(text)
+                label.setStyleSheet("font-size:13px;")
+
+            label.setTextFormat(Qt.TextFormat.RichText)
+            self.highscores_layout.addWidget(label)
 
     @staticmethod
     def _plural(value, unit):
@@ -466,6 +573,7 @@ class MainWindow(QMainWindow):
             return
         self.cfg = cfg
         self.worker.set_config(cfg)
+        self._refresh_activity()
         self._set_status("Saved.", error=False)
 
     def _reset(self):

@@ -24,6 +24,8 @@ import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ACTIVITY_PATH = os.path.join(BASE_DIR, "activity.json")
 
+HIGHSCORE_LIMIT = 10
+
 
 def load_activity(path=ACTIVITY_PATH):
     """Return the activity dict, or an empty dict if missing/unreadable."""
@@ -98,3 +100,37 @@ def counts_per_day(data, year):
         key = when.date().isoformat()
         counts[key] = counts.get(key, 0) + 1
     return counts
+
+
+def load_highscores(data, limit=HIGHSCORE_LIMIT):
+    """Return stored no-pull durations, longest first."""
+    raw = data.get("highscores", [])
+    if not isinstance(raw, list):
+        return []
+    scores = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        try:
+            seconds = int(item["seconds"])
+            start = str(item["start"])
+            end = str(item["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        scores.append({"start": start, "end": end, "seconds": seconds})
+    scores.sort(key=lambda s: s["seconds"], reverse=True)
+    return scores[:limit]
+
+
+def record_duration(data, start, end, limit=HIGHSCORE_LIMIT):
+    """Add a no-pull duration, keep the longest `limit`, and return the data."""
+    seconds = max(0, int((end - start).total_seconds()))
+    scores = load_highscores(data, limit=limit)
+    scores.append({
+        "start": start.replace(microsecond=0).isoformat(),
+        "end": end.replace(microsecond=0).isoformat(),
+        "seconds": seconds,
+    })
+    scores.sort(key=lambda s: s["seconds"], reverse=True)
+    data["highscores"] = scores[:limit]
+    return data
