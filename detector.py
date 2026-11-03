@@ -28,6 +28,8 @@ CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 
 HAIR_SEGMENTER = os.path.join(BASE_DIR, "models", "hair_segmenter.tflite")
 HAND_LANDMARKER = os.path.join(BASE_DIR, "models", "hand_landmarker.task")
+FACE_DETECTOR = os.path.join(BASE_DIR, "models",
+                             "blaze_face_short_range.tflite")
 
 # A hand must be seen in this many consecutive frames before its landmarks are
 # used. Raise it to reject transient false positives; 1 disables the check.
@@ -38,7 +40,10 @@ HAND_MATCH_DISTANCE = 0.2
 # Minimum hair-class probability for a pixel to count as hair. The segmenter
 # exposes no threshold of its own; 0.5 matches its argmax output. Raise it to
 # reject false hair regions.
-HAIR_THRESHOLD = 0.75
+HAIR_THRESHOLD = 0.7
+# Hair segmentation only runs when a face is detected. Minimum score for a face
+# detection to count.
+FACE_MIN_CONFIDENCE = 0.55
 
 # Built-in defaults. Any key present in config.json overrides its value here.
 DEFAULTS = {
@@ -167,6 +172,13 @@ class Detector:
                 min_hand_presence_confidence=0.8,
                 min_tracking_confidence=0.8,
             ))
+        self.face_detector = vision.FaceDetector.create_from_options(
+            vision.FaceDetectorOptions(
+                base_options=python.BaseOptions(
+                    model_asset_path=FACE_DETECTOR),
+                running_mode=vision.RunningMode.VIDEO,
+                min_detection_confidence=FACE_MIN_CONFIDENCE,
+            ))
         try:
             self.notifier = DesktopNotifierSync(app_name="Tricho")
         except Exception as e:
@@ -189,16 +201,22 @@ class Detector:
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
 
-        # --- hair mask (frame resolution, 1 = hair) ----------------------
-        seg = self.segmenter.segment_for_video(mp_img, timestamp_ms)
-        # confidence_masks[1] is the hair class; threshold it ourselves.
-        hair_conf = seg.confidence_masks[1].numpy_view()  # (H, W, 1) float
-        hair_bin = (hair_conf[:, :, 0] >= HAIR_THRESHOLD).astype(np.uint8)
-
-        if hair_bin.any():
-            dist = cv2.distanceTransform(1 - hair_bin, cv2.DIST_L2, 5)
+        # --- face gate + hair mask ----------------------------------------
+        # Only look for hair when a face is present. Without this, the
+        # segmenter can hallucinate hair on background objects.
+        face_result = self.face_detector.detect_for_video(mp_img, timestamp_ms)
+        if face_result.detections:
+            seg = self.segmenter.segment_for_video(mp_img, timestamp_ms)
+            # confidence_masks[1] is the hair class; threshold it ourselves.
+            hair_conf = seg.confidence_masks[1].numpy_view()  # (H, W, 1)
+            hair_bin = (hair_conf[:, :, 0] >= HAIR_THRESHOLD).astype(np.uint8)
+            if hair_bin.any():
+                dist = cv2.distanceTransform(1 - hair_bin, cv2.DIST_L2, 5)
+            else:
+                dist = None
         else:
-            dist = None  # no hair detected -> nothing can be "in hair"
+            hair_bin = None
+            dist = None  # no face -> no hair to test against
 
         # --- contact points ----------------------------------------------
         hand_result = self.landmarker.detect_for_video(mp_img, timestamp_ms)
@@ -308,6 +326,7 @@ class Detector:
         self.finalize_session()
         self.segmenter.close()
         self.landmarker.close()
+        self.face_detector.close()
 
 
 def draw_overlay(frame, result):

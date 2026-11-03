@@ -24,12 +24,14 @@ bottom.
 
 ## How it works
 
-Every frame interval (100 ms by default) the app runs two models on the same
+Every frame interval (100 ms by default) the app runs three models on the same
 camera frame:
 
 ```
 camera frame
-   ├─ MediaPipe Hair Segmenter ──► hair mask ──► distance transform
+   ├─ MediaPipe Face Detector ──► no face? ──► skip hair segmentation
+   ├─ MediaPipe Hair Segmenter (only when a face is present)
+   │        └─► hair mask ──► distance transform
    └─ MediaPipe Hand Landmarker ─► 21 landmarks ─► contact points
 
    contact point distance to hair  <  radius_px ?
@@ -39,9 +41,11 @@ camera frame
                                                                 (log + notify + sound)
 ```
 
-**1. Hair segmentation.** MediaPipe's Hair Segmenter produces per-pixel
-hair/background probabilities at the frame's resolution. We keep only pixels
-whose hair probability is at least `HAIR_THRESHOLD` (0.7).
+**1. Face gate and hair segmentation.** A MediaPipe Face Detector runs first.
+If no face is present, hair segmentation is skipped entirely, so background
+objects cannot be mistaken for hair. When a face is present, the Hair Segmenter
+produces per-pixel hair/background probabilities, and we keep only pixels whose
+hair probability is at least `HAIR_THRESHOLD` (0.7).
 
 **2. Distance transform.** For every pixel we compute the distance to the
 nearest hair pixel (`cv2.distanceTransform`). This is the key trick; see the
@@ -157,7 +161,7 @@ python install.py
 ```
 
 The installer creates a `.venv`, installs the pinned dependencies, downloads the
-two MediaPipe models into `models/`, and creates `config.json` on first run.
+three MediaPipe models into `models/`, and creates `config.json` on first run.
 It is safe to re-run: existing environments, models, and settings are reused.
 
 ---
@@ -212,7 +216,7 @@ you can also edit it by hand.
 | `notification_message` | `"Take a breath and move your hand away."` | Notification body |
 | `sound_path` | `""` | Path to a `.wav` / `.mp3` / `.ogg` / `.flac` file, played with each alert; empty = silent |
 
-Four notes:
+Five notes:
 
 - **`radius_px` is in frame pixels**, so it depends on the camera resolution.
   If you change resolution, re-tune it. 12 px at 720p is fairly tight; 15–30 is
@@ -222,6 +226,9 @@ Four notes:
 - **`HAIR_THRESHOLD`** (in `detector.py`, default `0.7`) is the minimum hair
   probability for a pixel to count as hair. Lower it to include more hair;
   raise it to reject false hair regions.
+- **`FACE_MIN_CONFIDENCE`** (in `detector.py`) gates hair segmentation on face
+  detection. Lower it if the gate drops you when partly out of frame; raise it
+  to reject spurious faces.
 - **The CLI-only `--dwell-frames`** flag (default 3) controls how many
   consecutive frames are needed before an episode is declared. It is not in
   `config.json`.
@@ -308,6 +315,7 @@ tricho_detector/
 ├── requirements.txt          # pinned dependencies
 ├── handpose-demo-keypoints.jpg
 └── models/
+    ├── blaze_face_short_range.tflite
     ├── hair_segmenter.tflite
     └── hand_landmarker.task
 ```
@@ -328,7 +336,7 @@ tricho_detector/
 | macOS on Intel | Not supported (MediaPipe ships arm64-only wheels) |
 | Android / iOS | Not supported (no Python MediaPipe; background camera is also restricted on mobile) |
 
-The two MediaPipe models are Apache-2.0 licensed. They are downloaded by the
+The MediaPipe models are Apache-2.0 licensed. They are downloaded by the
 installer and are not committed to this repository.
 
 ---
