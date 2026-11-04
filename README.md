@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="dont_pull.jpeg" alt="Don't Pull!" width="420">
+  <img src="dont_pull_square.png" alt="Don't Pull!" width="280">
 </p>
 
 <h1 align="center">Don't Pull!</h1>
@@ -321,7 +321,8 @@ tricho_detector/
 ├── config.json               # user settings
 ├── activity.json             # pull history (created on first pull)
 ├── requirements.txt          # pinned dependencies
-├── dont_pull.jpeg
+├── dont_pull.jpeg            # source logo
+├── dont_pull_square.png      # square notification icon
 ├── handpose-demo-keypoints.jpg
 └── models/
     ├── blaze_face_short_range.tflite

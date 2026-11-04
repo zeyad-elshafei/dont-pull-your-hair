@@ -31,7 +31,7 @@ HAIR_SEGMENTER = os.path.join(BASE_DIR, "models", "hair_segmenter.tflite")
 HAND_LANDMARKER = os.path.join(BASE_DIR, "models", "hand_landmarker.task")
 FACE_DETECTOR = os.path.join(BASE_DIR, "models",
                              "blaze_face_short_range.tflite")
-NOTIFICATION_ICON = Path(BASE_DIR) / "dont_pull.jpeg"
+NOTIFICATION_ICON = Path(BASE_DIR) / "dont_pull_square.png"
 
 # Max normalized distance between palm centers in consecutive frames for two
 # detections to count as the same hand.
