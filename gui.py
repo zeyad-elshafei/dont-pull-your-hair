@@ -123,7 +123,7 @@ class DetectorWorker(QThread):
 
     def run(self):
         try:
-            detector = Detector()
+            detector = Detector(self._snapshot())
         except Exception as e:                       # models missing/corrupt
             self.failed.emit(f"Could not load models: {e}")
             return
@@ -143,6 +143,7 @@ class DetectorWorker(QThread):
                     break
 
                 cfg = self._snapshot()
+                detector.reconfigure(cfg)
                 ts = int(time.monotonic() * 1000)
                 result = detector.process(frame, ts, cfg, self._dwell)
 
@@ -344,6 +345,90 @@ class MainWindow(QMainWindow):
         alerts_layout.addLayout(alerts_form)
         layout.addWidget(alerts_card)
 
+        # --- Advanced ------------------------------------------------------
+        advanced_card, advanced_layout = self._card("Advanced", "⚙️")
+        advanced_note = QLabel(
+            "Model-level tuning. Saving rebuilds the hand and face detectors "
+            "when their confidence values change.")
+        advanced_note.setWordWrap(True)
+        advanced_note.setStyleSheet("color:#6b7280;")
+        advanced_layout.addWidget(advanced_note)
+
+        advanced_form = QFormLayout()
+        advanced_form.setContentsMargins(0, 0, 0, 0)
+        advanced_form.setSpacing(8)
+        advanced_form.setLabelAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+        def add_advanced(label, widget, description):
+            advanced_form.addRow(label, widget)
+            note = QLabel(description)
+            note.setWordWrap(True)
+            note.setStyleSheet("color:#6b7280;")
+            advanced_form.addRow("", note)
+
+        self.hand_confirm_spin = QSpinBox()
+        self.hand_confirm_spin.setRange(1, 30)
+        self.hand_confirm_spin.setSingleStep(1)
+        add_advanced(
+            "Hand confirm frames:", self.hand_confirm_spin,
+            "Consecutive frames a hand must be seen before its landmarks are "
+            "used. Higher: fewer false hands, slower to react. Lower: faster, "
+            "but more false triggers.")
+
+        self.hair_threshold_spin = QDoubleSpinBox()
+        self.hair_threshold_spin.setRange(0.01, 1.0)
+        self.hair_threshold_spin.setSingleStep(0.01)
+        self.hair_threshold_spin.setDecimals(2)
+        add_advanced(
+            "Hair threshold:", self.hair_threshold_spin,
+            "Minimum hair probability per pixel. Higher: stricter, fewer "
+            "false hair regions but a smaller mask. Lower: more hair, but "
+            "more false positives.")
+
+        self.face_conf_spin = QDoubleSpinBox()
+        self.face_conf_spin.setRange(0.0, 1.0)
+        self.face_conf_spin.setSingleStep(0.01)
+        self.face_conf_spin.setDecimals(2)
+        add_advanced(
+            "Face confidence:", self.face_conf_spin,
+            "Minimum score for the face gate. Higher: hair segmentation runs "
+            "less often (may pause when you are partly out of frame). Lower: "
+            "more permissive, but more spurious faces.")
+
+        self.hand_detect_spin = QDoubleSpinBox()
+        self.hand_detect_spin.setRange(0.0, 1.0)
+        self.hand_detect_spin.setSingleStep(0.01)
+        self.hand_detect_spin.setDecimals(2)
+        add_advanced(
+            "Hand detection confidence:", self.hand_detect_spin,
+            "Confidence needed to initially detect a hand. Higher: fewer "
+            "false hands, but may miss real ones. Lower: more sensitive, but "
+            "more false positives.")
+
+        self.hand_presence_spin = QDoubleSpinBox()
+        self.hand_presence_spin.setRange(0.0, 1.0)
+        self.hand_presence_spin.setSingleStep(0.01)
+        self.hand_presence_spin.setDecimals(2)
+        add_advanced(
+            "Hand presence confidence:", self.hand_presence_spin,
+            "Confidence needed to keep tracking a hand. Higher: drops weak "
+            "tracks and re-detects. Lower: keeps tracking longer, but may "
+            "hold onto a bad detection.")
+
+        self.hand_tracking_spin = QDoubleSpinBox()
+        self.hand_tracking_spin.setRange(0.0, 1.0)
+        self.hand_tracking_spin.setSingleStep(0.01)
+        self.hand_tracking_spin.setDecimals(2)
+        add_advanced(
+            "Hand tracking confidence:", self.hand_tracking_spin,
+            "How closely a hand must match the previous frame to keep "
+            "tracking. Higher: re-detects more often. Lower: tracks longer "
+            "through movement.")
+
+        advanced_layout.addLayout(advanced_form)
+        layout.addWidget(advanced_card)
+
         layout.addStretch(1)
 
         scroll = QScrollArea()
@@ -512,6 +597,12 @@ class MainWindow(QMainWindow):
         self.interval_spin.setValue(int(round(cfg["frame_interval_ms"])))
         self.radius_spin.setValue(float(cfg["radius_px"]))
         self.color_step_spin.setValue(int(cfg["heatmap_green_step"]))
+        self.hand_confirm_spin.setValue(int(cfg["hand_confirm_frames"]))
+        self.hair_threshold_spin.setValue(float(cfg["hair_threshold"]))
+        self.face_conf_spin.setValue(float(cfg["face_min_confidence"]))
+        self.hand_detect_spin.setValue(float(cfg["hand_detection_confidence"]))
+        self.hand_presence_spin.setValue(float(cfg["hand_presence_confidence"]))
+        self.hand_tracking_spin.setValue(float(cfg["hand_tracking_confidence"]))
         self.title_edit.setText(cfg["notification_title"])
         self.message_edit.setText(cfg["notification_message"])
         self.sound_edit.setText(cfg["sound_path"])
@@ -530,6 +621,12 @@ class MainWindow(QMainWindow):
             "frame_interval_ms": float(self.interval_spin.value()),
             "radius_px": self.radius_spin.value(),
             "heatmap_green_step": self.color_step_spin.value(),
+            "hand_confirm_frames": self.hand_confirm_spin.value(),
+            "hair_threshold": self.hair_threshold_spin.value(),
+            "face_min_confidence": self.face_conf_spin.value(),
+            "hand_detection_confidence": self.hand_detect_spin.value(),
+            "hand_presence_confidence": self.hand_presence_spin.value(),
+            "hand_tracking_confidence": self.hand_tracking_spin.value(),
             "notification_title": self.title_edit.text(),
             "notification_message": self.message_edit.text(),
             "sound_path": self.sound_edit.text().strip(),

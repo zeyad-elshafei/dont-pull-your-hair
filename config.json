@@ -15,6 +15,12 @@
   "frame_interval_ms": 100.0,
   "radius_px": 10.0,
   "heatmap_green_step": 2,
+  "hand_confirm_frames": 3,
+  "hair_threshold": 0.7,
+  "face_min_confidence": 0.55,
+  "hand_detection_confidence": 0.8,
+  "hand_presence_confidence": 0.8,
+  "hand_tracking_confidence": 0.8,
   "notification_title": "Stop pulling your hair!",
   "notification_message": "Take a breath and move your hand away.",
   "sound_path": "/home/elshafei/archive/scripts/vineboom.mp3"

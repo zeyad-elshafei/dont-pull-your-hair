@@ -12,11 +12,12 @@ import os
 import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import cv2
 import numpy as np
 import mediapipe as mp
-from desktop_notifier import DesktopNotifierSync
+from desktop_notifier import DesktopNotifierSync, Icon
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
@@ -30,20 +31,11 @@ HAIR_SEGMENTER = os.path.join(BASE_DIR, "models", "hair_segmenter.tflite")
 HAND_LANDMARKER = os.path.join(BASE_DIR, "models", "hand_landmarker.task")
 FACE_DETECTOR = os.path.join(BASE_DIR, "models",
                              "blaze_face_short_range.tflite")
+NOTIFICATION_ICON = Path(BASE_DIR) / "dont_pull.jpeg"
 
-# A hand must be seen in this many consecutive frames before its landmarks are
-# used. Raise it to reject transient false positives; 1 disables the check.
-HAND_CONFIRM_FRAMES = 3
 # Max normalized distance between palm centers in consecutive frames for two
 # detections to count as the same hand.
 HAND_MATCH_DISTANCE = 0.2
-# Minimum hair-class probability for a pixel to count as hair. The segmenter
-# exposes no threshold of its own; 0.5 matches its argmax output. Raise it to
-# reject false hair regions.
-HAIR_THRESHOLD = 0.7
-# Hair segmentation only runs when a face is detected. Minimum score for a face
-# detection to count.
-FACE_MIN_CONFIDENCE = 0.55
 
 # Built-in defaults. Any key present in config.json overrides its value here.
 DEFAULTS = {
@@ -52,6 +44,12 @@ DEFAULTS = {
     "frame_interval_ms": 100,
     "radius_px": 12.0,
     "heatmap_green_step": 10,
+    "hand_confirm_frames": 3,
+    "hair_threshold": 0.7,
+    "face_min_confidence": 0.55,
+    "hand_detection_confidence": 0.8,
+    "hand_presence_confidence": 0.8,
+    "hand_tracking_confidence": 0.8,
     "notification_title": "Stop pulling your hair!",
     "notification_message": "Take a breath and move your hand away.",
     "sound_path": "",
@@ -96,6 +94,29 @@ def validate_config(cfg):
         raise ConfigError(
             "heatmap_green_step must be an integer in the range 1..255")
     out["heatmap_green_step"] = int(step)
+
+    def unit(key):
+        v = out.get(key)
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            raise ConfigError(f"{key} must be a number")
+        if not 0.0 <= v <= 1.0:
+            raise ConfigError(f"{key} must be between 0 and 1")
+        return float(v)
+
+    out["hair_threshold"] = unit("hair_threshold")
+    if out["hair_threshold"] <= 0.0:
+        raise ConfigError("hair_threshold must be greater than 0")
+    out["face_min_confidence"] = unit("face_min_confidence")
+    out["hand_detection_confidence"] = unit("hand_detection_confidence")
+    out["hand_presence_confidence"] = unit("hand_presence_confidence")
+    out["hand_tracking_confidence"] = unit("hand_tracking_confidence")
+
+    frames = out.get("hand_confirm_frames")
+    if (isinstance(frames, bool) or not isinstance(frames, int)
+            or not 1 <= frames <= 30):
+        raise ConfigError(
+            "hand_confirm_frames must be an integer in the range 1..30")
+    out["hand_confirm_frames"] = int(frames)
 
     for key in ("notification_title", "notification_message", "sound_path"):
         if not isinstance(out.get(key), str):
@@ -153,8 +174,9 @@ class Result:
 class Detector:
     """Holds the MediaPipe models and the temporal/notification state."""
 
-    def __init__(self):
-        self.segmenter = vision.ImageSegmenter.create_from_options(
+    @staticmethod
+    def _build_segmenter():
+        return vision.ImageSegmenter.create_from_options(
             vision.ImageSegmenterOptions(
                 base_options=python.BaseOptions(
                     model_asset_path=HAIR_SEGMENTER),
@@ -162,25 +184,41 @@ class Detector:
                 output_category_mask=False,
                 output_confidence_masks=True,
             ))
-        self.landmarker = vision.HandLandmarker.create_from_options(
+
+    @staticmethod
+    def _build_hand_landmarker(cfg):
+        return vision.HandLandmarker.create_from_options(
             vision.HandLandmarkerOptions(
                 base_options=python.BaseOptions(
                     model_asset_path=HAND_LANDMARKER),
                 running_mode=vision.RunningMode.VIDEO,
                 num_hands=2,
-                min_hand_detection_confidence=0.8,
-                min_hand_presence_confidence=0.8,
-                min_tracking_confidence=0.8,
+                min_hand_detection_confidence=cfg["hand_detection_confidence"],
+                min_hand_presence_confidence=cfg["hand_presence_confidence"],
+                min_tracking_confidence=cfg["hand_tracking_confidence"],
             ))
-        self.face_detector = vision.FaceDetector.create_from_options(
+
+    @staticmethod
+    def _build_face_detector(cfg):
+        return vision.FaceDetector.create_from_options(
             vision.FaceDetectorOptions(
                 base_options=python.BaseOptions(
                     model_asset_path=FACE_DETECTOR),
                 running_mode=vision.RunningMode.VIDEO,
-                min_detection_confidence=FACE_MIN_CONFIDENCE,
+                min_detection_confidence=cfg["face_min_confidence"],
             ))
+
+    def __init__(self, cfg):
+        self.cfg = dict(cfg)
+        self.segmenter = self._build_segmenter()
+        self.landmarker = self._build_hand_landmarker(cfg)
+        self.face_detector = self._build_face_detector(cfg)
+        self._icon = Icon(path=NOTIFICATION_ICON)
         try:
-            self.notifier = DesktopNotifierSync(app_name="Tricho")
+            self.notifier = DesktopNotifierSync(
+                app_name="Tricho",
+                app_icon=self._icon,
+            )
         except Exception as e:
             self.notifier = None
             print(f"[notify] disabled: {e}", file=sys.stderr)
@@ -193,6 +231,21 @@ class Detector:
         self._session_start = datetime.datetime.now()
         self._last_episode = None
         self._closed = False
+
+    def reconfigure(self, cfg):
+        """Rebuild models whose creation-time settings changed."""
+        cfg = dict(cfg)
+        hand_keys = ("hand_detection_confidence",
+                     "hand_presence_confidence",
+                     "hand_tracking_confidence")
+        if any(cfg[k] != self.cfg.get(k) for k in hand_keys):
+            self.landmarker.close()
+            self.landmarker = self._build_hand_landmarker(cfg)
+            self._hand_tracks = []
+        if cfg["face_min_confidence"] != self.cfg.get("face_min_confidence"):
+            self.face_detector.close()
+            self.face_detector = self._build_face_detector(cfg)
+        self.cfg = cfg
 
     def process(self, frame, timestamp_ms, cfg, dwell_frames=3):
         """Run one frame. cfg supplies contact_points/radius/cooldown/text."""
@@ -209,7 +262,7 @@ class Detector:
             seg = self.segmenter.segment_for_video(mp_img, timestamp_ms)
             # confidence_masks[1] is the hair class; threshold it ourselves.
             hair_conf = seg.confidence_masks[1].numpy_view()  # (H, W, 1)
-            hair_bin = (hair_conf[:, :, 0] >= HAIR_THRESHOLD).astype(np.uint8)
+            hair_bin = (hair_conf[:, :, 0] >= cfg["hair_threshold"]).astype(np.uint8)
             if hair_bin.any():
                 dist = cv2.distanceTransform(1 - hair_bin, cv2.DIST_L2, 5)
             else:
@@ -220,7 +273,8 @@ class Detector:
 
         # --- contact points ----------------------------------------------
         hand_result = self.landmarker.detect_for_video(mp_img, timestamp_ms)
-        hands = self._confirmed_hands(hand_result.hand_landmarks)
+        hands = self._confirmed_hands(hand_result.hand_landmarks,
+                                      cfg["hand_confirm_frames"])
         pulling = False
         points = []
 
@@ -262,6 +316,7 @@ class Detector:
                         self.notifier.send(
                             title=cfg["notification_title"],
                             message=cfg["notification_message"],
+                            icon=self._icon,
                         )
                     except Exception as e:
                         print(f"[notify] send failed: {e}", file=sys.stderr)
@@ -270,8 +325,8 @@ class Detector:
         return Result(warn=warn, pulling=pulling, points=points,
                       hair_mask=hair_bin, episode_started=episode_started)
 
-    def _confirmed_hands(self, hands):
-        """Keep only hands that have appeared for HAND_CONFIRM_FRAMES frames."""
+    def _confirmed_hands(self, hands, confirm_frames):
+        """Keep only hands that have appeared for `confirm_frames` frames."""
         centroids = []
         for hand in hands:
             cx = sum(lm.x for lm in hand) / len(hand)
@@ -302,7 +357,7 @@ class Detector:
                 track["cx"], track["cy"] = cx, cy
 
             new_tracks.append(track)
-            if track["streak"] >= HAND_CONFIRM_FRAMES:
+            if track["streak"] >= confirm_frames:
                 confirmed.append(hand)
 
         self._hand_tracks = new_tracks

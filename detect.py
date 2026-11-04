@@ -55,7 +55,7 @@ def main():
           f"interval={cfg['frame_interval_ms']}ms "
           f"radius={cfg['radius_px']}px", file=sys.stderr)
 
-    detector = Detector()
+    detector = Detector(cfg)
 
     cap = cv2.VideoCapture(args.camera)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)

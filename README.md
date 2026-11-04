@@ -1,9 +1,14 @@
-# Tricho Detector
+<p align="center">
+  <img src="dont_pull.jpeg" alt="Don't Pull!" width="420">
+</p>
 
-A local, webcam-based awareness tool for **trichotillomania** (hair-pulling
-disorder). It watches for the moment a hand comes into contact with hair, and
-gives a gentle but hard-to-miss cue (a desktop notification and an optional
-sound) so the behavior is interrupted before it becomes automatic.
+<h1 align="center">Don't Pull!</h1>
+
+**Tricho Detector** is a local, webcam-based awareness tool for
+**trichotillomania** (hair-pulling disorder). It watches for the moment a hand
+comes into contact with hair, and gives a gentle but hard-to-miss cue (a
+desktop notification and an optional sound) so the behavior is interrupted
+before it becomes automatic.
 
 Everything runs on your machine. No video is recorded, uploaded, or sent
 anywhere.
@@ -45,7 +50,7 @@ camera frame
 If no face is present, hair segmentation is skipped entirely, so background
 objects cannot be mistaken for hair. When a face is present, the Hair Segmenter
 produces per-pixel hair/background probabilities, and we keep only pixels whose
-hair probability is at least `HAIR_THRESHOLD` (0.7).
+hair probability is at least the configured `hair_threshold` (0.7 by default).
 
 **2. Distance transform.** For every pixel we compute the distance to the
 nearest hair pixel (`cv2.distanceTransform`). This is the key trick; see the
@@ -212,23 +217,26 @@ you can also edit it by hand.
 | `frame_interval_ms` | `100` | Milliseconds between processed frames (100 = 10 FPS) |
 | `radius_px` | `12.0` | Max distance from a contact point to hair, in frame pixels |
 | `heatmap_green_step` | `10` | Green removed from a day's square per pull (1–255) |
+| `hand_confirm_frames` | `3` | Consecutive frames a hand must be seen before use (1–30) |
+| `hair_threshold` | `0.7` | Minimum hair probability per pixel (0–1) |
+| `face_min_confidence` | `0.55` | Minimum score for the face gate (0–1) |
+| `hand_detection_confidence` | `0.8` | Palm-detector confidence to find a hand (0–1) |
+| `hand_presence_confidence` | `0.8` | Confidence to keep tracking a hand (0–1) |
+| `hand_tracking_confidence` | `0.8` | IoU threshold for hand tracking (0–1) |
 | `notification_title` | `"Stop pulling your hair!"` | Notification heading |
 | `notification_message` | `"Take a breath and move your hand away."` | Notification body |
 | `sound_path` | `""` | Path to a `.wav` / `.mp3` / `.ogg` / `.flac` file, played with each alert; empty = silent |
 
-Five notes:
+Four notes:
 
 - **`radius_px` is in frame pixels**, so it depends on the camera resolution.
   If you change resolution, re-tune it. 12 px at 720p is fairly tight; 15–30 is
   a reasonable range for most people.
 - **`heatmap_green_step`** controls how fast the calendar fades: each pull
   removes that many points from the green channel (1–255).
-- **`HAIR_THRESHOLD`** (in `detector.py`, default `0.7`) is the minimum hair
-  probability for a pixel to count as hair. Lower it to include more hair;
-  raise it to reject false hair regions.
-- **`FACE_MIN_CONFIDENCE`** (in `detector.py`) gates hair segmentation on face
-  detection. Lower it if the gate drops you when partly out of frame; raise it
-  to reject spurious faces.
+- **Advanced model settings** (`hand_confirm_frames`, `hair_threshold`,
+  `face_min_confidence`, and the three hand confidence values) live under
+  Settings → Advanced, with a description next to each one.
 - **The CLI-only `--dwell-frames`** flag (default 3) controls how many
   consecutive frames are needed before an episode is declared. It is not in
   `config.json`.
@@ -313,6 +321,7 @@ tricho_detector/
 ├── config.json               # user settings
 ├── activity.json             # pull history (created on first pull)
 ├── requirements.txt          # pinned dependencies
+├── dont_pull.jpeg
 ├── handpose-demo-keypoints.jpg
 └── models/
     ├── blaze_face_short_range.tflite
