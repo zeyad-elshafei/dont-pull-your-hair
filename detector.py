@@ -53,6 +53,7 @@ DEFAULTS = {
     "notification_title": "Stop pulling your hair!",
     "notification_message": "Take a breath and move your hand away.",
     "sound_path": "",
+    "warn_on_face_lost": False,
 }
 
 CONFIG_KEYS = tuple(DEFAULTS)
@@ -121,6 +122,9 @@ def validate_config(cfg):
     for key in ("notification_title", "notification_message", "sound_path"):
         if not isinstance(out.get(key), str):
             raise ConfigError(f"{key} must be a string")
+
+    if not isinstance(out.get("warn_on_face_lost"), bool):
+        raise ConfigError("warn_on_face_lost must be a boolean")
 
     return out
 
@@ -228,6 +232,7 @@ class Detector:
         self._streak = 0
         self._last_alert = float("-inf")
         self._last_warn = False
+        self._face_present = False
         self._session_start = datetime.datetime.now()
         self._last_episode = None
         self._closed = False
@@ -258,7 +263,24 @@ class Detector:
         # Only look for hair when a face is present. Without this, the
         # segmenter can hallucinate hair on background objects.
         face_result = self.face_detector.detect_for_video(mp_img, timestamp_ms)
-        if face_result.detections:
+        face_present = bool(face_result.detections)
+
+        # Warn once on the frame where the face disappears (1 -> 0 edge).
+        if (not face_present and self._face_present
+                and cfg.get("warn_on_face_lost", False)):
+            if self.notifier is not None:
+                try:
+                    self.notifier.send(
+                        title="Face not detected",
+                        message=("Your face is no longer apparent. Adjust your "
+                                 "position to be visible to the camera."),
+                        icon=self._icon,
+                    )
+                except Exception as e:
+                    print(f"[notify] send failed: {e}", file=sys.stderr)
+        self._face_present = face_present
+
+        if face_present:
             seg = self.segmenter.segment_for_video(mp_img, timestamp_ms)
             # confidence_masks[1] is the hair class; threshold it ourselves.
             hair_conf = seg.confidence_masks[1].numpy_view()  # (H, W, 1)

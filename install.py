@@ -23,6 +23,7 @@ VENV_DIR = os.path.join(BASE_DIR, ".venv")
 REQUIREMENTS = os.path.join(BASE_DIR, "requirements.txt")
 MODELS_DIR = os.path.join(BASE_DIR, "models")
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
+ACTIVITY_PATH = os.path.join(BASE_DIR, "activity.json")
 
 MIN_PYTHON = (3, 10)
 MIN_MODEL_BYTES = 100_000
@@ -181,6 +182,16 @@ def ensure_config():
     print("Created config.json with default settings")
 
 
+def ensure_activity():
+    if os.path.exists(ACTIVITY_PATH):
+        print("activity.json already present (left unchanged)")
+        return
+    with open(ACTIVITY_PATH, "w", encoding="utf-8") as f:
+        json.dump({}, f, indent=2)
+        f.write("\n")
+    print("Created empty activity.json")
+
+
 def verify():
     print("Verifying imports ...", flush=True)
     env = dict(os.environ, PYGAME_HIDE_SUPPORT_PROMPT="1")
@@ -218,6 +229,7 @@ def main(argv):
         install_requirements()
         download_models()
         ensure_config()
+        ensure_activity()
         verify()
     except subprocess.CalledProcessError as e:
         sys.exit(f"\nInstallation failed (command exited {e.returncode}). "

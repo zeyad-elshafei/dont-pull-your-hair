@@ -48,9 +48,11 @@ camera frame
 
 **1. Face gate and hair segmentation.** A MediaPipe Face Detector runs first.
 If no face is present, hair segmentation is skipped entirely, so background
-objects cannot be mistaken for hair. When a face is present, the Hair Segmenter
-produces per-pixel hair/background probabilities, and we keep only pixels whose
-hair probability is at least the configured `hair_threshold` (0.7 by default).
+objects cannot be mistaken for hair. If the optional face-loss warning is
+enabled, the first frame without a face after a detection also sends a
+notification. When a face is present, the Hair Segmenter produces per-pixel
+hair/background probabilities, and we keep only pixels whose hair probability
+is at least the configured `hair_threshold` (0.7 by default).
 
 **2. Distance transform.** For every pixel we compute the distance to the
 nearest hair pixel (`cv2.distanceTransform`). This is the key trick; see the
@@ -133,6 +135,8 @@ More points means higher recall and more false positives; it is a single knob.
 - **Live camera preview** with the hair mask and every contact point overlaid,
   so you can see exactly what the detector sees.
 - **Desktop notification + optional sound** when an episode starts.
+- **Optional face-loss warning**: a notification when the face detector loses
+  you, so you know to move back into view. Off by default.
 - **Configurable** contact points, radius, frame rate, cooldown, notification
   text, and sound file, editable in the GUI or in `config.json`.
 - **Activity calendar**: a GitHub-style yearly heatmap of pulls per day; hover
@@ -166,7 +170,8 @@ python install.py
 ```
 
 The installer creates a `.venv`, installs the pinned dependencies, downloads the
-three MediaPipe models into `models/`, and creates `config.json` on first run.
+three MediaPipe models into `models/`, and creates `config.json` and
+`activity.json` on first run.
 It is safe to re-run: existing environments, models, and settings are reused.
 
 ---
@@ -226,6 +231,7 @@ you can also edit it by hand.
 | `notification_title` | `"Stop pulling your hair!"` | Notification heading |
 | `notification_message` | `"Take a breath and move your hand away."` | Notification body |
 | `sound_path` | `""` | Path to a `.wav` / `.mp3` / `.ogg` / `.flac` file, played with each alert; empty = silent |
+| `warn_on_face_lost` | `false` | Send one notification when the face detector loses you |
 
 Four notes:
 
@@ -319,7 +325,7 @@ tricho_detector/
 ├── install.py                # cross-platform installer
 ├── install.sh / install.bat  # installer wrappers
 ├── config.json               # user settings
-├── activity.json             # pull history (created on first pull)
+├── activity.json             # pull history (gitignored; created by the installer)
 ├── requirements.txt          # pinned dependencies
 ├── dont_pull.jpeg            # source logo
 ├── dont_pull_square.png      # square notification icon
@@ -357,6 +363,8 @@ installer and are not committed to this repository.
 - Nothing is recorded, uploaded, or sent to any server.
 - `activity.json` stores only the timestamp of each pull, with no images, no
   video, and no location data.
+- `activity.json` is listed in `.gitignore`, so it is never committed to the
+  repository.
 - The feedback link opens an external Google Form in your browser; nothing is
   sent unless you choose to submit it.
 

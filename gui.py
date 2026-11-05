@@ -22,6 +22,7 @@ from PySide6.QtCore import QDate, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QDateEdit,
     QDoubleSpinBox,
@@ -323,6 +324,16 @@ class MainWindow(QMainWindow):
         alerts_form.setLabelAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
+        self.face_warn_check = QCheckBox(
+            "Warn me when my face is no longer visible")
+        alerts_form.addRow(self.face_warn_check)
+        face_warn_hint = QLabel(
+            "Sends one notification when the face detector loses you. "
+            "Re-arms when your face is detected again.")
+        face_warn_hint.setWordWrap(True)
+        face_warn_hint.setStyleSheet("color:#6b7280;")
+        alerts_form.addRow(face_warn_hint)
+
         self.title_edit = QLineEdit()
         alerts_form.addRow("Notification title:", self.title_edit)
 
@@ -516,7 +527,7 @@ class MainWindow(QMainWindow):
         calendar_header.addStretch(1)
         self.total_label = QLabel("")
         self.total_label.setStyleSheet(
-            "font-size:13px; font-weight:600; color:#2e7d32;")
+            "font-size:13px; font-weight:600; color:#c62828;")
         calendar_header.addWidget(self.total_label)
         calendar_layout.addLayout(calendar_header)
 
@@ -603,6 +614,7 @@ class MainWindow(QMainWindow):
         self.hand_detect_spin.setValue(float(cfg["hand_detection_confidence"]))
         self.hand_presence_spin.setValue(float(cfg["hand_presence_confidence"]))
         self.hand_tracking_spin.setValue(float(cfg["hand_tracking_confidence"]))
+        self.face_warn_check.setChecked(bool(cfg["warn_on_face_lost"]))
         self.title_edit.setText(cfg["notification_title"])
         self.message_edit.setText(cfg["notification_message"])
         self.sound_edit.setText(cfg["sound_path"])
@@ -630,6 +642,7 @@ class MainWindow(QMainWindow):
             "notification_title": self.title_edit.text(),
             "notification_message": self.message_edit.text(),
             "sound_path": self.sound_edit.text().strip(),
+            "warn_on_face_lost": self.face_warn_check.isChecked(),
         })
 
     def _update_fps(self, ms):
