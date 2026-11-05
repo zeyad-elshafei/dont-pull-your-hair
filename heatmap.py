@@ -33,8 +33,21 @@ class HeatmapWidget(QWidget):
         self._step = 10
         self._cell_rects = []
         self._hovered = None
+        self._theme = {
+            "label": QColor(110, 110, 110),
+            "month": QColor(80, 80, 80),
+            "border": QColor(220, 220, 220),
+        }
         self.setMouseTracking(True)
         self.setMinimumHeight(120)
+
+    def set_theme(self, colors):
+        self._theme = {
+            "label": QColor(colors["heatmap_label"]),
+            "month": QColor(colors["heatmap_month"]),
+            "border": QColor(colors["heatmap_border"]),
+        }
+        self.update()
 
     def set_data(self, year, counts, step=10):
         self._year = int(year)
@@ -79,18 +92,18 @@ class HeatmapWidget(QWidget):
         painter.setFont(font)
 
         # Weekday labels (Monday-first), GitHub style: Mon/Wed/Fri only.
-        painter.setPen(QColor(110, 110, 110))
+        painter.setPen(self._theme["label"])
         for row, name in ((0, "Mon"), (2, "Wed"), (4, "Fri")):
             painter.drawText(
                 QRectF(x0, TOP + row * step, LABEL_WIDTH - 4, step),
                 int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
                 name)
 
-        border = QPen(QColor(220, 220, 220), 1)
+        border = QPen(self._theme["border"], 1)
         x = x0 + LABEL_WIDTH
 
         for month, week_cols in zip(months, weeks):
-            painter.setPen(QColor(80, 80, 80))
+            painter.setPen(self._theme["month"])
             painter.drawText(
                 QRectF(x, 0, week_cols * step, TOP - 2),
                 int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),

@@ -55,6 +55,7 @@ DEFAULTS = {
     "sound_path": "",
     "warn_on_face_lost": False,
     "face_warn_cooldown_seconds": 1.5,
+    "dark_mode": False,
 }
 
 CONFIG_KEYS = tuple(DEFAULTS)
@@ -128,6 +129,9 @@ def validate_config(cfg):
 
     if not isinstance(out.get("warn_on_face_lost"), bool):
         raise ConfigError("warn_on_face_lost must be a boolean")
+
+    if not isinstance(out.get("dark_mode"), bool):
+        raise ConfigError("dark_mode must be a boolean")
 
     return out
 

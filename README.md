@@ -195,7 +195,7 @@ The app opens with three tabs:
 | Tab | What it does |
 |---|---|
 | **Camera** | Live preview; the status bar turns red while pulling is detected |
-| **Settings** | Edit all tunables, then **Save**. **Reset to Defaults** restores the form |
+| **Settings** | Edit all tunables and appearance, then **Save**. **Reset to Defaults** restores the form |
 | **Activity** | Yearly heatmap, pulls-over-time graph, streak timer, top-10 leaderboard, and the feedback link |
 
 Saving settings hot-applies them; no restart needed.
@@ -235,8 +235,9 @@ you can also edit it by hand.
 | `sound_path` | `""` | Path to a `.wav` / `.mp3` / `.ogg` / `.flac` file, played with each alert; empty = silent |
 | `warn_on_face_lost` | `false` | Send one notification when the face detector loses you |
 | `face_warn_cooldown_seconds` | `1.5` | Continuous face loss before that warning fires (0–60 s) |
+| `dark_mode` | `false` | Use the dark color palette in the app |
 
-Four notes:
+Five notes:
 
 - **`radius_px` is in frame pixels**, so it depends on the camera resolution.
   If you change resolution, re-tune it. 12 px at 720p is fairly tight; 15–30 is
@@ -246,6 +247,8 @@ Four notes:
 - **Advanced model settings** (`hand_confirm_frames`, `hair_threshold`,
   `face_min_confidence`, and the three hand confidence values) live under
   Settings → Advanced, with a description next to each one.
+- **Dark mode** lives under Settings → Appearance. It is applied when you click
+  **Save**, like the other settings.
 - **The CLI-only `--dwell-frames`** flag (default 3) controls how many
   consecutive frames are needed before an episode is declared. It is not in
   `config.json`.
@@ -324,6 +327,7 @@ tricho_detector/
 ├── activity.py               # pull timestamps, streaks, daily counts
 ├── heatmap.py                # yearly heatmap widget
 ├── graph.py                  # pulls-per-bucket bar chart
+├── theme.py                  # light/dark color tokens and global Qt styling
 ├── sound.py                  # cross-platform sound playback
 ├── install.py                # cross-platform installer
 ├── install.sh / install.bat  # installer wrappers

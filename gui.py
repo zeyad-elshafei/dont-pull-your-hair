@@ -17,6 +17,8 @@ import sys
 import threading
 import time
 
+import theme
+
 import cv2
 from PySide6.QtCore import QDate, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QImage, QPixmap
@@ -178,6 +180,10 @@ class MainWindow(QMainWindow):
 
         cfg, warning = self._initial_config()
         self.cfg = cfg
+        self._theme = theme.LIGHT
+        self._last_warn = False
+        self._last_status = ("", False)
+        self._dark = bool(cfg["dark_mode"])
         self._last_image = None
         self._preview_player = None
         self._last_pull = None
@@ -196,6 +202,7 @@ class MainWindow(QMainWindow):
         if warning:
             self._set_status(warning, error=True)
         self._refresh_activity()
+        self._apply_theme(bool(cfg["dark_mode"]))
 
         self.worker = DetectorWorker(cfg)
         self.worker.frame_ready.connect(self._on_frame)
@@ -219,6 +226,7 @@ class MainWindow(QMainWindow):
 
     def _build_camera_tab(self):
         page = QWidget()
+        page.setObjectName("cameraPage")
         layout = QVBoxLayout(page)
 
         self.image_label = QLabel("Starting camera…")
@@ -240,16 +248,15 @@ class MainWindow(QMainWindow):
     def _build_settings_tab(self):
         page = QWidget()
         page.setObjectName("settingsPage")
-        page.setStyleSheet("#settingsPage { background:#f5f6f8; }")
         layout = QVBoxLayout(page)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
         title = QLabel("Settings")
-        title.setStyleSheet("font-size:22px; font-weight:800; color:#111827;")
+        title.setProperty("role", "pageTitle")
         layout.addWidget(title)
         subtitle = QLabel("Tune detection, the calendar, and alerts")
-        subtitle.setStyleSheet("font-size:12px; color:#6b7280;")
+        subtitle.setProperty("role", "subtitle")
         layout.addWidget(subtitle)
 
         # --- Detection -----------------------------------------------------
@@ -264,7 +271,7 @@ class MainWindow(QMainWindow):
         self.points_edit.setPlaceholderText("4,8,12,16,20,3,7,11,15,19")
         form.addRow("Contact points (0–20):", self.points_edit)
         hint = QLabel("Fingertips: 4, 8, 12, 16, 20 · DIP joints: 3, 7, 11, 15, 19")
-        hint.setStyleSheet("color:#6b7280;")
+        hint.setProperty("role", "hint")
         form.addRow("", hint)
 
         self.cooldown_spin = QDoubleSpinBox()
@@ -280,7 +287,7 @@ class MainWindow(QMainWindow):
         self.interval_spin.setSuffix(" ms")
         self.interval_spin.valueChanged.connect(self._update_fps)
         self.fps_label = QLabel()
-        self.fps_label.setStyleSheet("color:#6b7280;")
+        self.fps_label.setProperty("role", "hint")
         form.addRow("Frame interval:", self.interval_spin)
         form.addRow("", self.fps_label)
 
@@ -310,11 +317,22 @@ class MainWindow(QMainWindow):
             "Green removed per pull. At 10, a day with 10 pulls is (0, 155, 0) "
             "and 26+ pulls turns the square black. Higher values fade faster.")
         color_hint.setWordWrap(True)
-        color_hint.setStyleSheet("color:#6b7280;")
+        color_hint.setProperty("role", "hint")
         calendar_form.addRow("", color_hint)
 
         calendar_layout.addLayout(calendar_form)
         layout.addWidget(calendar_card)
+
+        # --- Appearance ----------------------------------------------------
+        appearance_card, appearance_layout = self._card("Appearance", "🌗")
+        self.dark_mode_check = QCheckBox("Dark mode")
+        appearance_layout.addWidget(self.dark_mode_check)
+        appearance_hint = QLabel(
+            "Switch the interface to a dark palette. Click Save to apply.")
+        appearance_hint.setProperty("role", "hint")
+        appearance_hint.setWordWrap(True)
+        appearance_layout.addWidget(appearance_hint)
+        layout.addWidget(appearance_card)
 
         # --- Alerts --------------------------------------------------------
         alerts_card, alerts_layout = self._card("Alerts", "🔔")
@@ -331,7 +349,7 @@ class MainWindow(QMainWindow):
             "Sends one notification when the face detector loses you. "
             "Re-arms when your face is detected again.")
         face_warn_hint.setWordWrap(True)
-        face_warn_hint.setStyleSheet("color:#6b7280;")
+        face_warn_hint.setProperty("role", "hint")
         alerts_form.addRow(face_warn_hint)
 
         self.face_warn_cooldown_spin = QDoubleSpinBox()
@@ -345,7 +363,7 @@ class MainWindow(QMainWindow):
             "How long the face must stay missing before the warning fires. "
             "Higher values ignore brief flicker; 0 warns immediately.")
         cooldown_hint.setWordWrap(True)
-        cooldown_hint.setStyleSheet("color:#6b7280;")
+        cooldown_hint.setProperty("role", "hint")
         alerts_form.addRow("", cooldown_hint)
 
         self.title_edit = QLineEdit()
@@ -376,7 +394,7 @@ class MainWindow(QMainWindow):
             "Model-level tuning. Saving rebuilds the hand and face detectors "
             "when their confidence values change.")
         advanced_note.setWordWrap(True)
-        advanced_note.setStyleSheet("color:#6b7280;")
+        advanced_note.setProperty("role", "hint")
         advanced_layout.addWidget(advanced_note)
 
         advanced_form = QFormLayout()
@@ -389,7 +407,7 @@ class MainWindow(QMainWindow):
             advanced_form.addRow(label, widget)
             note = QLabel(description)
             note.setWordWrap(True)
-            note.setStyleSheet("color:#6b7280;")
+            note.setProperty("role", "hint")
             advanced_form.addRow("", note)
 
         self.hand_confirm_spin = QSpinBox()
@@ -467,16 +485,10 @@ class MainWindow(QMainWindow):
 
         buttons = QHBoxLayout()
         self.save_button = QPushButton("Save")
-        self.save_button.setStyleSheet(
-            "QPushButton { background:#2e7d32; color:white; font-weight:600; "
-            "padding:8px 24px; border:none; border-radius:8px; }"
-            "QPushButton:hover { background:#276b2b; }")
+        self.save_button.setObjectName("saveButton")
         self.save_button.clicked.connect(self._save)
         self.reset_button = QPushButton("Reset to Defaults")
-        self.reset_button.setStyleSheet(
-            "QPushButton { background:#ffffff; color:#374151; font-weight:600; "
-            "padding:8px 20px; border:1px solid #d1d5db; border-radius:8px; }"
-            "QPushButton:hover { background:#f3f4f6; }")
+        self.reset_button.setObjectName("resetButton")
         self.reset_button.clicked.connect(self._reset)
         buttons.addWidget(self.save_button)
         buttons.addWidget(self.reset_button)
@@ -484,9 +496,6 @@ class MainWindow(QMainWindow):
 
         footer = QWidget()
         footer.setObjectName("settingsFooter")
-        footer.setStyleSheet(
-            "#settingsFooter { background:#ffffff; "
-            "border-top:1px solid #e4e7ec; }")
         footer_layout = QVBoxLayout(footer)
         footer_layout.setContentsMargins(16, 10, 16, 12)
         footer_layout.setSpacing(6)
@@ -505,31 +514,26 @@ class MainWindow(QMainWindow):
     def _card(title, icon=""):
         card = QFrame()
         card.setObjectName("card")
-        card.setStyleSheet(
-            "QFrame#card { background:#ffffff; border:1px solid #e4e7ec; "
-            "border-radius:12px; }")
         layout = QVBoxLayout(card)
         layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(10)
         heading = QLabel(f"{icon}  {title}")
-        heading.setStyleSheet(
-            "font-size:14px; font-weight:700; color:#1f2937;")
+        heading.setProperty("role", "cardTitle")
         layout.addWidget(heading)
         return card, layout
 
     def _build_activity_tab(self):
         page = QWidget()
         page.setObjectName("activityPage")
-        page.setStyleSheet("#activityPage { background:#f5f6f8; }")
         layout = QVBoxLayout(page)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
         title = QLabel("Your activity")
-        title.setStyleSheet("font-size:22px; font-weight:800; color:#111827;")
+        title.setProperty("role", "pageTitle")
         layout.addWidget(title)
         subtitle = QLabel("Patterns, streaks, and records at a glance")
-        subtitle.setStyleSheet("font-size:12px; color:#6b7280;")
+        subtitle.setProperty("role", "subtitle")
         layout.addWidget(subtitle)
 
         calendar_card, calendar_layout = self._card("Pull calendar", "📅")
@@ -540,8 +544,7 @@ class MainWindow(QMainWindow):
         calendar_header.addWidget(self.year_combo)
         calendar_header.addStretch(1)
         self.total_label = QLabel("")
-        self.total_label.setStyleSheet(
-            "font-size:13px; font-weight:600; color:#c62828;")
+        self.total_label.setProperty("role", "total")
         calendar_header.addWidget(self.total_label)
         calendar_layout.addLayout(calendar_header)
 
@@ -560,15 +563,14 @@ class MainWindow(QMainWindow):
             "every pull removes 10 from the green channel, so darker squares "
             "mean more pulling that day.")
         self.description_label.setWordWrap(True)
-        self.description_label.setStyleSheet("color:#6b7280;")
+        self.description_label.setProperty("role", "hint")
         calendar_layout.addWidget(self.description_label)
         layout.addWidget(calendar_card)
 
         streak_card, streak_layout = self._card("Current streak", "🔥")
         self.streak_label = QLabel("No pulls recorded yet.")
         self.streak_label.setWordWrap(True)
-        self.streak_label.setStyleSheet(
-            "font-size:20px; font-weight:700; color:#14532d;")
+        self.streak_label.setProperty("role", "streak")
         streak_layout.addWidget(self.streak_label)
         layout.addWidget(streak_card)
 
@@ -604,7 +606,7 @@ class MainWindow(QMainWindow):
 
         footer = QLabel("All data stays on your device")
         footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        footer.setStyleSheet("color:#9ca3af; font-size:11px; padding-top:4px;")
+        footer.setProperty("role", "footer")
         layout.addWidget(footer)
 
         layout.addStretch(1)
@@ -628,6 +630,7 @@ class MainWindow(QMainWindow):
         self.hand_detect_spin.setValue(float(cfg["hand_detection_confidence"]))
         self.hand_presence_spin.setValue(float(cfg["hand_presence_confidence"]))
         self.hand_tracking_spin.setValue(float(cfg["hand_tracking_confidence"]))
+        self.dark_mode_check.setChecked(bool(cfg["dark_mode"]))
         self.face_warn_check.setChecked(bool(cfg["warn_on_face_lost"]))
         self.face_warn_cooldown_spin.setValue(
             float(cfg["face_warn_cooldown_seconds"]))
@@ -660,6 +663,7 @@ class MainWindow(QMainWindow):
             "sound_path": self.sound_edit.text().strip(),
             "warn_on_face_lost": self.face_warn_check.isChecked(),
             "face_warn_cooldown_seconds": self.face_warn_cooldown_spin.value(),
+            "dark_mode": self.dark_mode_check.isChecked(),
         })
 
     def _update_fps(self, ms):
@@ -686,9 +690,36 @@ class MainWindow(QMainWindow):
         self._set_status("Playing sound…", error=False)
 
     def _set_status(self, text, error=False):
-        self.status_label.setStyleSheet(
-            "color:#c62828;" if error else "color:#2e7d32;")
+        self._last_status = (text, error)
+        color = self._theme["danger"] if error else self._theme["success"]
+        self.status_label.setStyleSheet(f"color:{color};")
         self.status_label.setText(text)
+
+    def _apply_theme(self, dark):
+        self._dark = bool(dark)
+        self._theme = theme.DARK if self._dark else theme.LIGHT
+        app = QApplication.instance()
+        if app is not None:
+            app.setPalette(theme.build_palette(self._theme))
+            app.setStyleSheet(theme.stylesheet(self._theme))
+        if hasattr(self, "heatmap"):
+            self.heatmap.set_theme(self._theme)
+        if hasattr(self, "graph"):
+            self.graph.set_theme(self._theme)
+        if hasattr(self, "contact_label"):
+            self._update_contact_link()
+        if hasattr(self, "state_label"):
+            self._on_status(getattr(self, "_last_warn", False))
+        if hasattr(self, "status_label"):
+            self._set_status(*self._last_status)
+        if hasattr(self, "year_combo"):
+            self._refresh_activity()
+
+    def _update_contact_link(self):
+        self.contact_label.setText(
+            f'<a href="{FEEDBACK_URL}" '
+            f'style="color:{self._theme["link"]}; font-size:14px;">'
+            'Contact us</a>')
 
     def _refresh_activity(self, *_args):
         data = load_activity()
@@ -747,7 +778,8 @@ class MainWindow(QMainWindow):
                 "No durations yet. A stretch starts when you launch the app "
                 "and ends at your first pull.")
             empty.setWordWrap(True)
-            empty.setStyleSheet("color:#6b7280; padding:6px 2px;")
+            empty.setStyleSheet(
+                f"color:{self._theme['muted']}; padding:6px 2px;")
             self.highscores_layout.addWidget(empty)
             return
 
@@ -761,16 +793,17 @@ class MainWindow(QMainWindow):
 
             if rank < 3:
                 text = (f"{medals[rank]} {duration}"
-                        f"<span style='color:#777; font-weight:normal; "
-                        f"font-size:11px;'>&nbsp;&nbsp;{span}</span>")
+                        f"<span style='color:{self._theme['muted']}; "
+                        f"font-weight:normal; font-size:11px;'>"
+                        f"&nbsp;&nbsp;{span}</span>")
                 label = QLabel(text)
                 label.setStyleSheet(
                     f"font-size:{sizes[rank]}px; font-weight:bold; "
                     f"color:{colors[rank]}; padding:6px 2px;")
             else:
                 text = (f"{rank + 1}. {duration}"
-                        f"<span style='color:#777; font-size:11px;'>"
-                        f"&nbsp;&nbsp;{span}</span>")
+                        f"<span style='color:{self._theme['muted']}; "
+                        f"font-size:11px;'>&nbsp;&nbsp;{span}</span>")
                 label = QLabel(text)
                 label.setStyleSheet("font-size:13px; padding:6px 2px;")
 
@@ -781,7 +814,8 @@ class MainWindow(QMainWindow):
                 line = QFrame()
                 line.setFrameShape(QFrame.Shape.HLine)
                 line.setFixedHeight(1)
-                line.setStyleSheet("background:#eceff3; border:none;")
+                line.setStyleSheet(
+                    f"background:{self._theme['separator']}; border:none;")
                 self.highscores_layout.addWidget(line)
 
     @staticmethod
@@ -819,7 +853,7 @@ class MainWindow(QMainWindow):
             return
         self.cfg = cfg
         self.worker.set_config(cfg)
-        self._refresh_activity()
+        self._apply_theme(cfg["dark_mode"])
         self._set_status("Saved.", error=False)
 
     def _reset(self):
@@ -844,6 +878,7 @@ class MainWindow(QMainWindow):
             Qt.TransformationMode.SmoothTransformation))
 
     def _on_status(self, warn):
+        self._last_warn = warn
         self.state_label.setText(
             "PULLING: hands away from your hair" if warn else "safe")
         self.state_label.setStyleSheet(self._state_style(warn))
@@ -853,12 +888,12 @@ class MainWindow(QMainWindow):
         self.state_label.setStyleSheet(self._state_style(True))
         self._set_status(message, error=True)
 
-    @staticmethod
-    def _state_style(warn):
+    def _state_style(self, warn):
         if warn:
-            return ("background:#c62828; color:white; font-size:20px; "
-                    "font-weight:bold; border-radius:6px; padding:6px;")
-        return ("background:#2e7d32; color:white; font-size:20px; "
+            bg, fg = self._theme["alert_bg"], self._theme["alert_fg"]
+        else:
+            bg, fg = self._theme["safe_bg"], self._theme["safe_fg"]
+        return (f"background:{bg}; color:{fg}; font-size:20px; "
                 "font-weight:bold; border-radius:6px; padding:6px;")
 
     def resizeEvent(self, event):
@@ -872,6 +907,7 @@ class MainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
+    app.setStyle("Fusion")
     window = MainWindow()
     window.show()
     sys.exit(app.exec())

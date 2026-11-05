@@ -191,6 +191,14 @@ class PullGraph(QWidget):
         self._n = 0
         self._bar_w = 1.0
         self._hovered = None
+        self._theme = {
+            "title": QColor(70, 70, 70),
+            "nodata": QColor(140, 140, 140),
+            "grid": QColor(232, 232, 232),
+            "axis": QColor(160, 160, 160),
+            "axis_text": QColor(90, 90, 90),
+            "bar": QColor(198, 40, 40),
+        }
         self.setMouseTracking(True)
         self.setMinimumHeight(230)
 
@@ -201,6 +209,17 @@ class PullGraph(QWidget):
         self._title = title
         self._descriptions = descriptions
         self._hovered = None
+        self.update()
+
+    def set_theme(self, colors):
+        self._theme = {
+            "title": QColor(colors["heading"]),
+            "nodata": QColor(colors["graph_nodata"]),
+            "grid": QColor(colors["graph_grid"]),
+            "axis": QColor(colors["graph_axis"]),
+            "axis_text": QColor(colors["graph_text"]),
+            "bar": QColor(colors["graph_bar"]),
+        }
         self.update()
 
     def paintEvent(self, event):
@@ -218,14 +237,14 @@ class PullGraph(QWidget):
         title_font = QFont()
         title_font.setPointSize(9)
         painter.setFont(title_font)
-        painter.setPen(QColor(70, 70, 70))
+        painter.setPen(self._theme["title"])
         painter.drawText(
             QRectF(left, 2, self.width() - left - right, top - 6),
             int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
             self._title)
 
         if not self._counts or max(self._counts) == 0:
-            painter.setPen(QColor(140, 140, 140))
+            painter.setPen(self._theme["nodata"])
             painter.drawText(plot, int(Qt.AlignmentFlag.AlignCenter),
                              "No pulls in this period")
             return
@@ -247,15 +266,15 @@ class PullGraph(QWidget):
 
         for value in y_ticks:
             y = plot.bottom() - plot.height() * (value / y_max)
-            painter.setPen(QPen(QColor(232, 232, 232), 1))
+            painter.setPen(QPen(self._theme["grid"], 1))
             painter.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y))
-            painter.setPen(QColor(90, 90, 90))
+            painter.setPen(self._theme["axis_text"])
             painter.drawText(
                 QRectF(0, y - 8, left - 6, 16),
                 int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
                 str(value))
 
-        painter.setPen(QPen(QColor(160, 160, 160), 1))
+        painter.setPen(QPen(self._theme["axis"], 1))
         painter.drawLine(QPointF(plot.left(), plot.bottom()),
                          QPointF(plot.right(), plot.bottom()))
         painter.drawLine(QPointF(plot.left(), plot.bottom()),
@@ -266,7 +285,7 @@ class PullGraph(QWidget):
         self._n = n
         self._bar_w = bar_w
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(198, 40, 40))
+        painter.setBrush(self._theme["bar"])
         for i, count in enumerate(self._counts):
             if count <= 0:
                 continue
@@ -277,12 +296,12 @@ class PullGraph(QWidget):
 
         for i in sorted(set(self._labels) | self._ticks):
             x = plot.left() + (i + 0.5) * bar_w
-            painter.setPen(QPen(QColor(160, 160, 160), 1))
+            painter.setPen(QPen(self._theme["axis"], 1))
             painter.drawLine(QPointF(x, plot.bottom()),
                              QPointF(x, plot.bottom() + 4))
             label = self._labels.get(i)
             if label:
-                painter.setPen(QColor(70, 70, 70))
+                painter.setPen(self._theme["axis_text"])
                 painter.drawText(
                     QRectF(x - 32, plot.bottom() + 5, 64, 16),
                     int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop),
