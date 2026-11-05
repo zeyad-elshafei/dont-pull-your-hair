@@ -49,10 +49,11 @@ camera frame
 **1. Face gate and hair segmentation.** A MediaPipe Face Detector runs first.
 If no face is present, hair segmentation is skipped entirely, so background
 objects cannot be mistaken for hair. If the optional face-loss warning is
-enabled, the first frame without a face after a detection also sends a
-notification. When a face is present, the Hair Segmenter produces per-pixel
-hair/background probabilities, and we keep only pixels whose hair probability
-is at least the configured `hair_threshold` (0.7 by default).
+enabled, the face must stay missing for the configured cooldown (1.5 s by
+default) before a notification is sent, which ignores brief flicker. When a
+face is present, the Hair Segmenter produces per-pixel hair/background
+probabilities, and we keep only pixels whose hair probability is at least the
+configured `hair_threshold` (0.7 by default).
 
 **2. Distance transform.** For every pixel we compute the distance to the
 nearest hair pixel (`cv2.distanceTransform`). This is the key trick; see the
@@ -136,7 +137,8 @@ More points means higher recall and more false positives; it is a single knob.
   so you can see exactly what the detector sees.
 - **Desktop notification + optional sound** when an episode starts.
 - **Optional face-loss warning**: a notification when the face detector loses
-  you, so you know to move back into view. Off by default.
+  you, so you know to move back into view. Off by default, with a 1.5 s
+  cooldown to ignore brief flicker.
 - **Configurable** contact points, radius, frame rate, cooldown, notification
   text, and sound file, editable in the GUI or in `config.json`.
 - **Activity calendar**: a GitHub-style yearly heatmap of pulls per day; hover
@@ -232,6 +234,7 @@ you can also edit it by hand.
 | `notification_message` | `"Take a breath and move your hand away."` | Notification body |
 | `sound_path` | `""` | Path to a `.wav` / `.mp3` / `.ogg` / `.flac` file, played with each alert; empty = silent |
 | `warn_on_face_lost` | `false` | Send one notification when the face detector loses you |
+| `face_warn_cooldown_seconds` | `1.5` | Continuous face loss before that warning fires (0–60 s) |
 
 Four notes:
 

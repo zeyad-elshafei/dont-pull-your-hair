@@ -334,6 +334,20 @@ class MainWindow(QMainWindow):
         face_warn_hint.setStyleSheet("color:#6b7280;")
         alerts_form.addRow(face_warn_hint)
 
+        self.face_warn_cooldown_spin = QDoubleSpinBox()
+        self.face_warn_cooldown_spin.setRange(0.0, 60.0)
+        self.face_warn_cooldown_spin.setSingleStep(0.5)
+        self.face_warn_cooldown_spin.setDecimals(1)
+        self.face_warn_cooldown_spin.setSuffix(" s")
+        alerts_form.addRow("Face warning cooldown:",
+                           self.face_warn_cooldown_spin)
+        cooldown_hint = QLabel(
+            "How long the face must stay missing before the warning fires. "
+            "Higher values ignore brief flicker; 0 warns immediately.")
+        cooldown_hint.setWordWrap(True)
+        cooldown_hint.setStyleSheet("color:#6b7280;")
+        alerts_form.addRow("", cooldown_hint)
+
         self.title_edit = QLineEdit()
         alerts_form.addRow("Notification title:", self.title_edit)
 
@@ -615,6 +629,8 @@ class MainWindow(QMainWindow):
         self.hand_presence_spin.setValue(float(cfg["hand_presence_confidence"]))
         self.hand_tracking_spin.setValue(float(cfg["hand_tracking_confidence"]))
         self.face_warn_check.setChecked(bool(cfg["warn_on_face_lost"]))
+        self.face_warn_cooldown_spin.setValue(
+            float(cfg["face_warn_cooldown_seconds"]))
         self.title_edit.setText(cfg["notification_title"])
         self.message_edit.setText(cfg["notification_message"])
         self.sound_edit.setText(cfg["sound_path"])
@@ -643,6 +659,7 @@ class MainWindow(QMainWindow):
             "notification_message": self.message_edit.text(),
             "sound_path": self.sound_edit.text().strip(),
             "warn_on_face_lost": self.face_warn_check.isChecked(),
+            "face_warn_cooldown_seconds": self.face_warn_cooldown_spin.value(),
         })
 
     def _update_fps(self, ms):

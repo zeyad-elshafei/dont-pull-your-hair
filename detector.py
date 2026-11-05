@@ -54,6 +54,7 @@ DEFAULTS = {
     "notification_message": "Take a breath and move your hand away.",
     "sound_path": "",
     "warn_on_face_lost": False,
+    "face_warn_cooldown_seconds": 1.5,
 }
 
 CONFIG_KEYS = tuple(DEFAULTS)
@@ -88,6 +89,8 @@ def validate_config(cfg):
     out["cooldown_seconds"] = number("cooldown_seconds", 0)
     out["frame_interval_ms"] = number("frame_interval_ms", 0, exclusive=True)
     out["radius_px"] = number("radius_px", 0)
+    out["face_warn_cooldown_seconds"] = number(
+        "face_warn_cooldown_seconds", 0)
 
     step = out.get("heatmap_green_step")
     if (isinstance(step, bool) or not isinstance(step, int)
@@ -233,6 +236,8 @@ class Detector:
         self._last_alert = float("-inf")
         self._last_warn = False
         self._face_present = False
+        self._face_lost_since = None
+        self._face_warned = False
         self._session_start = datetime.datetime.now()
         self._last_episode = None
         self._closed = False
@@ -264,20 +269,31 @@ class Detector:
         # segmenter can hallucinate hair on background objects.
         face_result = self.face_detector.detect_for_video(mp_img, timestamp_ms)
         face_present = bool(face_result.detections)
+        now_mono = time.monotonic()
 
-        # Warn once on the frame where the face disappears (1 -> 0 edge).
-        if (not face_present and self._face_present
-                and cfg.get("warn_on_face_lost", False)):
-            if self.notifier is not None:
-                try:
-                    self.notifier.send(
-                        title="Face not detected",
-                        message=("Your face is no longer apparent. Adjust your "
-                                 "position to be visible to the camera."),
-                        icon=self._icon,
-                    )
-                except Exception as e:
-                    print(f"[notify] send failed: {e}", file=sys.stderr)
+        if face_present:
+            self._face_lost_since = None
+            self._face_warned = False
+        else:
+            if self._face_present:
+                self._face_lost_since = now_mono
+            if (cfg.get("warn_on_face_lost", False)
+                    and not self._face_warned
+                    and self._face_lost_since is not None
+                    and now_mono - self._face_lost_since
+                    >= cfg["face_warn_cooldown_seconds"]):
+                self._face_warned = True
+                if self.notifier is not None:
+                    try:
+                        self.notifier.send(
+                            title="Face not detected",
+                            message=("Your face is no longer apparent. Adjust "
+                                     "your position to be visible to the "
+                                     "camera."),
+                            icon=self._icon,
+                        )
+                    except Exception as e:
+                        print(f"[notify] send failed: {e}", file=sys.stderr)
         self._face_present = face_present
 
         if face_present:
