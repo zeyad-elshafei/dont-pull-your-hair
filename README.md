@@ -212,6 +212,47 @@ Saving settings hot-applies them; no restart needed.
 
 ---
 
+## Screenshots
+
+Dark mode is shown below; click an image to open it full size. Switch themes
+under **Settings → Appearance**.
+
+### Settings
+
+<p align="center">
+  <a href="ArcoLinux_2026-11-06_02-12-15.png">
+    <img src="ArcoLinux_2026-11-06_02-12-15.png" alt="Settings: detection, calendar, and appearance" width="100%">
+  </a>
+</p>
+
+<p align="center">
+  <a href="ArcoLinux_2026-11-06_02-12-43.png">
+    <img src="ArcoLinux_2026-11-06_02-12-43.png" alt="Settings: alerts, sound, and advanced options" width="100%">
+  </a>
+</p>
+
+<p align="center">
+  <a href="ArcoLinux_2026-11-06_02-12-57.png">
+    <img src="ArcoLinux_2026-11-06_02-12-57.png" alt="Settings: advanced model tuning" width="100%">
+  </a>
+</p>
+
+### Activity
+
+<p align="center">
+  <a href="ArcoLinux_2026-11-06_02-13-19.png">
+    <img src="ArcoLinux_2026-11-06_02-13-19.png" alt="Activity: pull calendar, streak, graph, and leaderboard" width="100%">
+  </a>
+</p>
+
+<p align="center">
+  <a href="ArcoLinux_2026-11-06_02-13-34.png">
+    <img src="ArcoLinux_2026-11-06_02-13-34.png" alt="Activity: graph, full leaderboard, and footer" width="100%">
+  </a>
+</p>
+
+---
+
 ## Configuration
 
 Settings live in `config.json` next to the scripts. The GUI writes this file;
