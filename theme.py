@@ -160,6 +160,22 @@ QPushButton#resetButton {
 QPushButton#resetButton:hover {
     background: $secondary_hover;
 }
+QPushButton#calibrateButton {
+    background: $secondary_bg;
+    color: $secondary_fg;
+    font-weight: 600;
+    padding: 6px 12px;
+    border: 1px solid $secondary_border;
+    border-radius: 6px;
+}
+QPushButton#calibrateButton:hover {
+    background: $secondary_hover;
+}
+QPushButton#calibrateButton:checked {
+    background: $alert_bg;
+    color: $alert_fg;
+    border: 1px solid $alert_bg;
+}
 QCheckBox {
     color: $body;
 }

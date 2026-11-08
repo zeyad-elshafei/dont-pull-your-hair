@@ -111,14 +111,23 @@ class DetectorWorker(QThread):
         self._dwell = dwell_frames
         self._stop = threading.Event()
         self._lock = threading.Lock()
+        self._calibrate = False
 
     def set_config(self, cfg):
         with self._lock:
             self._cfg = dict(cfg)
 
+    def set_calibrate(self, enabled):
+        with self._lock:
+            self._calibrate = bool(enabled)
+
     def _snapshot(self):
         with self._lock:
             return dict(self._cfg)
+
+    def _calibrating(self):
+        with self._lock:
+            return self._calibrate
 
     def stop(self):
         self._stop.set()
@@ -146,9 +155,11 @@ class DetectorWorker(QThread):
                     break
 
                 cfg = self._snapshot()
+                calibrate = self._calibrating()
                 detector.reconfigure(cfg)
                 ts = int(time.monotonic() * 1000)
-                result = detector.process(frame, ts, cfg, self._dwell)
+                result = detector.process(frame, ts, cfg, self._dwell,
+                                          calibrate=calibrate)
 
                 vis = draw_overlay(frame, result)
                 h, w = vis.shape[:2]
@@ -184,6 +195,7 @@ class MainWindow(QMainWindow):
         self._last_warn = False
         self._last_status = ("", False)
         self._dark = bool(cfg["dark_mode"])
+        self._calibrate = False
         self._last_image = None
         self._preview_player = None
         self._last_pull = None
@@ -242,7 +254,26 @@ class MainWindow(QMainWindow):
         self.state_label.setStyleSheet(self._state_style(False))
 
         layout.addWidget(self.image_label, 1)
-        layout.addWidget(self.state_label)
+
+        controls = QHBoxLayout()
+        controls.addWidget(self.state_label, 1)
+        self.calibrate_button = QPushButton("Calibrate mode")
+        self.calibrate_button.setCheckable(True)
+        self.calibrate_button.setObjectName("calibrateButton")
+        self.calibrate_button.setToolTip(
+            "Show pull detections without alerts, activity logging, or "
+            "streak resets.")
+        self.calibrate_button.toggled.connect(self._on_calibrate_toggled)
+        controls.addWidget(self.calibrate_button)
+        layout.addLayout(controls)
+
+        self.calibrate_hint = QLabel(
+            "Calibration mode is on: pulls are shown but not recorded.")
+        self.calibrate_hint.setProperty("role", "hint")
+        self.calibrate_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.calibrate_hint.setWordWrap(True)
+        self.calibrate_hint.hide()
+        layout.addWidget(self.calibrate_hint)
         return page
 
     def _build_settings_tab(self):
@@ -876,6 +907,14 @@ class MainWindow(QMainWindow):
             self.image_label.size(),
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation))
+
+    def _on_calibrate_toggled(self, enabled):
+        self._calibrate = bool(enabled)
+        self.calibrate_button.setText(
+            "Stop calibrating" if enabled else "Calibrate mode")
+        self.calibrate_hint.setVisible(enabled)
+        if hasattr(self, "worker"):
+            self.worker.set_calibrate(enabled)
 
     def _on_status(self, warn):
         self._last_warn = warn

@@ -37,6 +37,9 @@ NOTIFICATION_ICON = Path(BASE_DIR) / "dont_pull_square.png"
 # detections to count as the same hand.
 HAND_MATCH_DISTANCE = 0.2
 
+# How long calibrate mode may stay on before a reminder notification.
+CALIBRATE_WARN_SECONDS = 120
+
 # Built-in defaults. Any key present in config.json overrides its value here.
 DEFAULTS = {
     "contact_points": [4, 8, 12, 16, 20, 3, 7, 11, 15, 19],
@@ -180,6 +183,7 @@ class Result:
     points: list
     hair_mask: np.ndarray | None
     episode_started: bool = False
+    radius_px: float = 0.0
 
 
 class Detector:
@@ -245,6 +249,9 @@ class Detector:
         self._session_start = datetime.datetime.now()
         self._last_episode = None
         self._closed = False
+        self._calibrate_active = False
+        self._calibrate_since = None
+        self._calibrate_warned = False
 
     def reconfigure(self, cfg):
         """Rebuild models whose creation-time settings changed."""
@@ -261,8 +268,19 @@ class Detector:
             self.face_detector = self._build_face_detector(cfg)
         self.cfg = cfg
 
-    def process(self, frame, timestamp_ms, cfg, dwell_frames=3):
-        """Run one frame. cfg supplies contact_points/radius/cooldown/text."""
+    def _notify(self, title, message):
+        if self.notifier is None:
+            return
+        try:
+            self.notifier.send(title=title, message=message, icon=self._icon)
+        except Exception as e:
+            print(f"[notify] send failed: {e}", file=sys.stderr)
+
+    def process(self, frame, timestamp_ms, cfg, dwell_frames=3,
+                calibrate=False):
+        """Run one frame. cfg supplies contact_points/radius/cooldown/text.
+        calibrate suppresses alerts, activity writes, and streak resets.
+        """
         H, W = frame.shape[:2]
 
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -275,29 +293,42 @@ class Detector:
         face_present = bool(face_result.detections)
         now_mono = time.monotonic()
 
+        # --- calibrate mode reminder --------------------------------------
+        if calibrate:
+            if not self._calibrate_active:
+                self._calibrate_active = True
+                self._calibrate_since = now_mono
+                self._calibrate_warned = False
+            elif (not self._calibrate_warned
+                    and now_mono - self._calibrate_since
+                    >= CALIBRATE_WARN_SECONDS):
+                self._calibrate_warned = True
+                self._notify(
+                    "Calibration mode is still on",
+                    "Turn it off when you are done so your pulls are tracked "
+                    "again.")
+        else:
+            self._calibrate_active = False
+            self._calibrate_since = None
+            self._calibrate_warned = False
+
         if face_present:
             self._face_lost_since = None
             self._face_warned = False
         else:
             if self._face_present:
                 self._face_lost_since = now_mono
-            if (cfg.get("warn_on_face_lost", False)
+            if (not calibrate
+                    and cfg.get("warn_on_face_lost", False)
                     and not self._face_warned
                     and self._face_lost_since is not None
                     and now_mono - self._face_lost_since
                     >= cfg["face_warn_cooldown_seconds"]):
                 self._face_warned = True
-                if self.notifier is not None:
-                    try:
-                        self.notifier.send(
-                            title="Face not detected",
-                            message=("Your face is no longer apparent. Adjust "
-                                     "your position to be visible to the "
-                                     "camera."),
-                            icon=self._icon,
-                        )
-                    except Exception as e:
-                        print(f"[notify] send failed: {e}", file=sys.stderr)
+                self._notify(
+                    "Face not detected",
+                    "Your face is no longer apparent. Adjust your position to "
+                    "be visible to the camera.")
         self._face_present = face_present
 
         if face_present:
@@ -337,6 +368,10 @@ class Detector:
         # Count the start of each pulling episode once (rising edge of warn).
         episode_started = warn and not self._last_warn
         self._last_warn = warn
+        if calibrate:
+            # Calibration shows PULLING but must not touch saved activity
+            # or the streak timer.
+            episode_started = False
         if episode_started:
             now = datetime.datetime.now()
             start = self._last_episode or self._session_start
@@ -349,23 +384,17 @@ class Detector:
                 print(f"[activity] save failed: {e}", file=sys.stderr)
             self._last_episode = now
 
-        if warn:
+        if warn and not calibrate:
             now = time.monotonic()
             if now - self._last_alert >= cfg["cooldown_seconds"]:
                 self._last_alert = now
-                if self.notifier is not None:
-                    try:
-                        self.notifier.send(
-                            title=cfg["notification_title"],
-                            message=cfg["notification_message"],
-                            icon=self._icon,
-                        )
-                    except Exception as e:
-                        print(f"[notify] send failed: {e}", file=sys.stderr)
+                self._notify(cfg["notification_title"],
+                             cfg["notification_message"])
                 self._sound.play(cfg.get("sound_path", ""))
 
         return Result(warn=warn, pulling=pulling, points=points,
-                      hair_mask=hair_bin, episode_started=episode_started)
+                      hair_mask=hair_bin, episode_started=episode_started,
+                      radius_px=float(cfg["radius_px"]))
 
     def _confirmed_hands(self, hands, confirm_frames):
         """Keep only hands that have appeared for `confirm_frames` frames."""
@@ -427,13 +456,16 @@ class Detector:
 
 
 def draw_overlay(frame, result):
-    """Return a BGR copy of frame with the hair mask and contact points drawn."""
+    """Return a BGR copy of frame with the hair mask, contact points and
+    trigger radii drawn."""
     out = frame.copy()
     if result.hair_mask is not None:
         mask = cv2.cvtColor((result.hair_mask * 255).astype(np.uint8),
                             cv2.COLOR_GRAY2BGR)
         out = cv2.addWeighted(out, 0.6, mask, 0.4, 0)
+    radius = max(1, int(round(result.radius_px)))
     for (x, y) in result.points:
+        cv2.circle(out, (x, y), radius, (0, 0, 255), 1, cv2.LINE_AA)
         cv2.circle(out, (x, y), 6, (0, 0, 255), -1)
     label = "PULLING" if result.warn else "safe"
     color = (0, 0, 255) if result.warn else (0, 255, 0)

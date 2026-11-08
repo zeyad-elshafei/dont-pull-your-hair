@@ -139,6 +139,11 @@ More points means higher recall and more false positives; it is a single knob.
 - **Optional face-loss warning**: a notification when the face detector loses
   you, so you know to move back into view. Off by default, with a 1.5 s
   cooldown to ignore brief flicker.
+- **Calibrate mode**: a Camera-tab toggle that shows live PULLING feedback
+  without sending pull notifications, recording pulls, or resetting the streak
+  timer. A reminder notification fires after two minutes so it is not left on.
+- **Radius visualization**: red circles around each contact point show the
+  exact reach of `radius_px`; a hair pixel inside one triggers the pull test.
 - **Configurable** contact points, radius, frame rate, cooldown, notification
   text, and sound file, editable in the GUI or in `config.json`.
 - **Activity calendar**: a GitHub-style yearly heatmap of pulls per day; hover
@@ -194,11 +199,17 @@ The app opens with three tabs:
 
 | Tab | What it does |
 |---|---|
-| **Camera** | Live preview; the status bar turns red while pulling is detected |
+| **Camera** | Live preview; the status bar turns red while pulling is detected. Toggle **Calibrate mode** to test settings without recording anything |
 | **Settings** | Edit all tunables and appearance, then **Save**. **Reset to Defaults** restores the form |
 | **Activity** | Yearly heatmap, pulls-over-time graph, streak timer, top-10 leaderboard, and the feedback link |
 
 Saving settings hot-applies them; no restart needed.
+
+**Calibrate mode** is a runtime-only toggle: it is not saved to
+`config.json`, and it resets to off when the app restarts. While it is on, the
+Camera preview still shows the red PULLING state, but detections do not send
+pull notifications, write to `activity.json`, or reset the current no-pull
+timer.
 
 > Desktop notifications are suppressed by your OS's **Do Not Disturb / Focus**
 > mode. The in-app status bar (and the sound, if configured) still work.
