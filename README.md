@@ -154,6 +154,10 @@ More points means higher recall and more false positives; it is a single knob.
   reset when the app starts and after every pull.
 - **Highscore leaderboard**: the ten longest stretches without pulling, with
   gold, silver, and bronze medals for the top three.
+- **Fewest-pulls leaderboard**: the ten completed days with the lowest pull
+  counts, including zero-pull days. The current day is excluded until it ends;
+  ties go to the most recent day. Rebuilt at launch and at midnight.
+- **Today's count**: "Number of pulls today is X," updated after every pull.
 - **100% local**: no account, no server, no cloud.
 
 ---
@@ -201,7 +205,7 @@ The app opens with three tabs:
 |---|---|
 | **Camera** | Live preview; the status bar turns red while pulling is detected. Toggle **Calibrate mode** to test settings without recording anything |
 | **Settings** | Edit all tunables and appearance, then **Save**. **Reset to Defaults** restores the form |
-| **Activity** | Yearly heatmap, pulls-over-time graph, streak timer, top-10 leaderboard, and the feedback link |
+| **Activity** | Yearly heatmap, pulls-over-time graph, streak timer, top-10 leaderboards, today's count, and the feedback link |
 
 Saving settings hot-applies them; no restart needed.
 
@@ -365,6 +369,19 @@ Below it, the graph shows pulls per bucket for a selectable window:
 Pick the window with the **Graph** dropdown and the reference date with
 **Date**.
 
+### Daily bests
+
+The fewest-pulls card ranks completed days by their pull count, lowest first.
+Every calendar day from the first recorded pull through yesterday is included,
+so a zero-pull day can hold the top spot. Today is excluded until it ends, and
+ties go to the most recent day. The card is rebuilt when the app starts and at
+midnight while it is running.
+
+The "Number of pulls today is X" line updates after every pull. A green count
+means no pulls so far today; a red count means at least one. The daily
+leaderboard is derived from the stored timestamps; it is not saved as a
+separate field.
+
 Delete `activity.json` to start with a clean history.
 
 ---
@@ -376,7 +393,7 @@ tricho_detector/
 ├── gui.py                    # PySide6 app: Camera / Settings / Activity
 ├── detect.py                 # command-line runner
 ├── detector.py               # shared core: models, decision logic, alerts
-├── activity.py               # pull timestamps, streaks, daily counts
+├── activity.py               # pull timestamps, streaks, daily counts and bests
 ├── heatmap.py                # yearly heatmap widget
 ├── graph.py                  # pulls-per-bucket bar chart
 ├── theme.py                  # light/dark color tokens and global Qt styling

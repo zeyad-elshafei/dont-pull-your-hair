@@ -134,3 +134,37 @@ def record_duration(data, start, end, limit=HIGHSCORE_LIMIT):
     scores.sort(key=lambda s: s["seconds"], reverse=True)
     data["highscores"] = scores[:limit]
     return data
+
+
+def least_pull_days(data, limit=HIGHSCORE_LIMIT, today=None):
+    """Return completed days ranked by fewest pulls, then most recent.
+
+    Every calendar day from the first recorded pull through yesterday is
+    included, so a zero-pull day can be the best entry. Today is excluded
+    because it is still in progress.
+    """
+    today = today or datetime.date.today()
+    if isinstance(today, datetime.datetime):
+        today = today.date()
+
+    pulls = all_pulls(data)
+    if not pulls:
+        return []
+
+    counts = {}
+    for when in pulls:
+        day = when.date()
+        counts[day] = counts.get(day, 0) + 1
+
+    start = min(counts)
+    yesterday = today - datetime.timedelta(days=1)
+    rows = []
+    day = start
+    while day <= yesterday:
+        rows.append((day, counts.get(day, 0)))
+        day += datetime.timedelta(days=1)
+
+    # Fewest pulls first. For ties, prefer the most recent day.
+    rows.sort(key=lambda row: (row[1], -row[0].toordinal()))
+    return [{"date": day.isoformat(), "count": count}
+            for day, count in rows[:limit]]

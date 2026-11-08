@@ -44,8 +44,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from activity import (all_pulls, counts_per_day, load_activity,
-                      load_highscores, years_in)
+from activity import (all_pulls, counts_per_day, least_pull_days,
+                      load_activity, load_highscores, years_in)
 from detector import (
     CONFIG_PATH,
     DEFAULTS,
@@ -200,6 +200,7 @@ class MainWindow(QMainWindow):
         self._preview_player = None
         self._last_pull = None
         self._session_start = datetime.datetime.now()
+        self._current_day = self._session_start.date()
         self._pulls = []
 
         tabs = QTabWidget()
@@ -635,6 +636,24 @@ class MainWindow(QMainWindow):
         leaderboard_layout.addWidget(self.highscores_container)
         layout.addWidget(leaderboard_card)
 
+        best_card, best_card_layout = self._card(
+            "Fewest pulls in a day", "🏅")
+        self.today_label = QLabel("Number of pulls today is 0.")
+        self.today_label.setProperty("role", "total")
+        best_card_layout.addWidget(self.today_label)
+        self.bestdays_container = QWidget()
+        self.bestdays_layout = QVBoxLayout(self.bestdays_container)
+        self.bestdays_layout.setContentsMargins(0, 0, 0, 0)
+        self.bestdays_layout.setSpacing(0)
+        best_card_layout.addWidget(self.bestdays_container)
+        best_hint = QLabel(
+            "Completed days only, including zero-pull days. The current day "
+            "is ranked after it ends; ties go to the most recent day.")
+        best_hint.setProperty("role", "hint")
+        best_hint.setWordWrap(True)
+        best_card_layout.addWidget(best_hint)
+        layout.addWidget(best_card)
+
         footer = QLabel("All data stays on your device")
         footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         footer.setProperty("role", "footer")
@@ -781,6 +800,7 @@ class MainWindow(QMainWindow):
 
         self._refresh_graph()
         self._refresh_highscores(data)
+        self._refresh_best_days(data)
 
     def _on_tab_changed(self, index):
         if self.tabs.tabText(index) == "Activity":
@@ -849,11 +869,78 @@ class MainWindow(QMainWindow):
                     f"background:{self._theme['separator']}; border:none;")
                 self.highscores_layout.addWidget(line)
 
+    def _refresh_best_days(self, data):
+        while self.bestdays_layout.count():
+            item = self.bestdays_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        today = datetime.date.today()
+        today_count = counts_per_day(data, today.year).get(
+            today.isoformat(), 0)
+        self.today_label.setText(
+            f"Number of pulls today is {today_count}.")
+        color = (self._theme["success"] if today_count == 0
+                 else self._theme["danger"])
+        self.today_label.setStyleSheet(f"color:{color};")
+
+        scores = least_pull_days(data, today=today)
+        if not scores:
+            empty = QLabel(
+                "No completed days yet. A day appears here after it ends.")
+            empty.setWordWrap(True)
+            empty.setStyleSheet(
+                f"color:{self._theme['muted']}; padding:6px 2px;")
+            self.bestdays_layout.addWidget(empty)
+            return
+
+        medals = ("🥇", "🥈", "🥉")
+        colors = ("#D4AF37", "#A8A9AD", "#CD7F32")
+        sizes = (20, 18, 16)
+
+        for rank, score in enumerate(scores):
+            day = datetime.date.fromisoformat(score["date"])
+            date_text = day.strftime("%d %b %Y")
+            amount = self._plural(score["count"], "pull")
+
+            if rank < 3:
+                text = (f"{medals[rank]} {amount}"
+                        f"<span style='color:{self._theme['muted']}; "
+                        f"font-weight:normal; font-size:11px;'>"
+                        f"&nbsp;&nbsp;{date_text}</span>")
+                label = QLabel(text)
+                label.setStyleSheet(
+                    f"font-size:{sizes[rank]}px; font-weight:bold; "
+                    f"color:{colors[rank]}; padding:6px 2px;")
+            else:
+                text = (f"{rank + 1}. {amount}"
+                        f"<span style='color:{self._theme['muted']}; "
+                        f"font-size:11px;'>&nbsp;&nbsp;{date_text}</span>")
+                label = QLabel(text)
+                label.setStyleSheet("font-size:13px; padding:6px 2px;")
+
+            label.setTextFormat(Qt.TextFormat.RichText)
+            self.bestdays_layout.addWidget(label)
+
+            if rank < len(scores) - 1:
+                line = QFrame()
+                line.setFrameShape(QFrame.Shape.HLine)
+                line.setFixedHeight(1)
+                line.setStyleSheet(
+                    f"background:{self._theme['separator']}; border:none;")
+                self.bestdays_layout.addWidget(line)
+
     @staticmethod
     def _plural(value, unit):
         return f"{value} {unit}" + ("" if value == 1 else "s")
 
     def _update_streak(self):
+        today = datetime.date.today()
+        if today != self._current_day:
+            self._current_day = today
+            self._refresh_activity()
+            return
         start = self._last_pull or self._session_start
         elapsed = int((datetime.datetime.now() - start).total_seconds())
         elapsed = max(0, elapsed)
